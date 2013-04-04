@@ -1,0 +1,22 @@
+1349079296032	Delete element
+1349079314703	Delete element
+1349100898128	Delete element
+1349186679175	Delete element
+1349187758037	Delete element
+1349269392227	Delete element
+1349269668024	Delete element
+1349269719473	Delete element
+1349269735318	Delete element
+1349269746508	Delete element
+1349276166408	Rename field 'KEY_TYPE'
+1349276178097	Rename field 'CERT_SIGNATURE_TYPE'
+1349276183848	Rename field 'CERT_SIGNATURE_ALGORITHM'
+1349276987181	Rename type 'TestRandomPasswordGenerator'
+1349351232172	Delete element
+1349351264612	Move compilation unit
+1349351269361	Delete element
+1349353908655	Delete element
+1349355336135	Rename method 'generateSelfSignedCert'
+1349356610303	Rename field 'certificatesFolder'
+1349356615297	Rename field 'tomcatFolder'
+1349357198788	Rename method 'updateWebServerConfiguration'

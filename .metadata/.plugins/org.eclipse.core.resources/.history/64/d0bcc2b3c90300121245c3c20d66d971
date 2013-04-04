@@ -1,0 +1,70 @@
+package com.mideye.services.oam_hdl;
+
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+
+import org.apache.log4j.xml.DOMConfigurator;
+import org.glassfish.embeddable.Deployer;
+import org.glassfish.embeddable.GlassFish;
+import org.glassfish.embeddable.GlassFishException;
+import org.glassfish.embeddable.GlassFishProperties;
+import org.glassfish.embeddable.GlassFishRuntime;
+import org.glassfish.embeddable.archive.ScatteredArchive;
+import org.glassfish.embeddable.archive.ScatteredEnterpriseArchive;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.mideye.logmanager.LogException;
+import com.mideye.logmanager.LogProperties;
+
+/**
+ * This class is responsible for the loading of the mideye web admin.
+ * Differently from the old web adminin, this is using embedded glassfish
+ * instead of tomcat. This class is called when the mideye server is started. 
+ * In particular this class replaces the OamHandler, with the difference that
+ * now the server (glassfish) is started here as well.
+ * Then the war file containing the web administration is deployed as well as
+ * other possible war files needed to be deployed.
+ */
+public class WebAdminLauncher
+{
+
+	private static final Logger	logger	= LoggerFactory.getLogger(WebAdminLauncher.class);
+
+	/**
+	 * @param args
+	 * @throws GlassFishException
+	 * @throws IOException 
+	 */
+	public static void main(String[] args) throws GlassFishException, IOException
+	{
+		LogProperties logProperties;
+		try
+		{
+			logProperties = new LogProperties();
+			DOMConfigurator.configureAndWatch(logProperties.configToolLogConfig());
+			
+			GlassFishProperties glassfishProperties = new GlassFishProperties();
+		    glassfishProperties.setPort("http-listener", 8080);
+//		    glassfishProperties.setPort("http-listener", 8081);
+	
+		    glassfishProperties.setProperty("address", "any");
+		    
+		    GlassFish glassfish = GlassFishRuntime.bootstrap().newGlassFish(glassfishProperties);
+		    glassfish.start();
+		    
+		    logger.info("Glassfish server started");
+		    File war = new File(args[0]);
+		    Deployer deployer = glassfish.getDeployer();
+		    deployer.deploy(war, "--name=MideyeWebAdmin", "--contextroot=/", "--force=true");
+		    logger.info(war.getName() + " deployed");
+		    
+		}
+		catch (LogException e)
+		{
+			logger.error("Error starting web manager; Impossible to log", e);
+			System.exit(496);
+		}
+	}
+}

@@ -1,0 +1,227 @@
+package com.mideye.logmanager;
+
+import java.net.Inet4Address;
+import java.net.UnknownHostException;
+
+import org.jdom2.Attribute;
+import org.jdom2.Element;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.mideye.utilities.Platform;
+
+public class SnmpAppender extends LogAppender
+{
+	/* ########## CONSTANTS ########## */
+	
+	private static final long	serialVersionUID	= -3156656139623802023L;
+	private static final Logger logger = LoggerFactory.getLogger(SnmpAppender.class);
+	private final static String log4jClass = "org.apache.log4j.ext.SNMPTrapAppender";
+	
+	private final String ENTERPRISE_OID = "1.3.6.1.4.1.40761"; //Mideye Enterprise OID assigned by IANA, DO NOT CHANGE!
+	private final String APPLICATION_OID = "1.3.6.1.4.1.40761.1.1"; //Mideye Enterprise OID . Mideye products . Mideye server
+
+	public final static String DEFAULT_MANAGEMENT_HOST = "localhost";
+	public final static String DEFAULT_COMMUNITY = "public";
+	
+	/* Management port */
+	private final static int DEFAULT_MANAGEMENT_PORT_WIN = 162;		//do not access directly this variables,
+	private final static int DEFAULT_MANAGEMENT_PORT_LINUX = 10162;	//use the getter
+	
+	public static int getDefaultManagementPort()
+	{
+		if (Platform.getPlatform().isUnixSystem())
+			return DEFAULT_MANAGEMENT_PORT_LINUX;
+		else
+			return DEFAULT_MANAGEMENT_PORT_WIN;
+	}
+	/* Management port */
+
+	/* Outgoing port */
+	private final static int DEFAULT_OUTGOING_PORT_WIN = 161;		//do not access directly this variables,
+	private final static int DEFAULT_OUTGOING_PORT_LINUX = 10161;	//use the getter
+	
+	public static int getDefaultOutgoingPort()
+	{
+		if (Platform.getPlatform().isUnixSystem())
+			return DEFAULT_OUTGOING_PORT_LINUX;
+		else
+			return DEFAULT_OUTGOING_PORT_WIN;
+	}
+	/* Outgoing port */
+	
+	/* ########## END OF CONSTANTS ########## */
+	
+	public SnmpAppender(Element element)
+	{
+		super(element);
+		appenderParams.put(LogConstants.IMPLEMENTATION_CLASS, "org.apache.log4j.ext.JoeSNMPTrapSender");
+		appenderParams.put(LogConstants.SNMP_MANAGEMENT_HOST, DEFAULT_MANAGEMENT_HOST);
+		appenderParams.put(LogConstants.SNMP_MANAGEMENT_PORT, new Integer(getDefaultManagementPort()).toString());
+		appenderParams.put(LogConstants.SNMP_ENTERPRISE_OID, ENTERPRISE_OID);
+		
+		String localIP = "127.0.0.1";
+		try
+		{
+			localIP = Inet4Address.getLocalHost().getHostAddress();
+		}
+		catch (UnknownHostException e)
+		{
+			logger.warn("No IPv4 address found, defaulting to '127.0.0.1'", e);
+		}
+		appenderParams.put(LogConstants.SNMP_LOCAL_IP, localIP);
+		
+		appenderParams.put(LogConstants.SNMP_OUTGOING_PORT, new Integer(getDefaultOutgoingPort()).toString());
+		appenderParams.put(LogConstants.SNMP_GENERIC_TYPE, "6");
+		appenderParams.put(LogConstants.SNMP_SPECIFIC_TYPE, "0");
+		appenderParams.put(LogConstants.SNMP_COMMUNITY_STRING, DEFAULT_COMMUNITY);
+		appenderParams.put(LogConstants.SNMP_FORWARD_TRACE, "false");
+		appenderParams.put(LogConstants.SNMP_APPLICATION_OID, APPLICATION_OID);
+		
+		appenderParams.put(LogConstants.LAYOUT, "");
+		
+		setParams(element);
+	}
+	
+	public SnmpAppender(SimpleSnmpAppender simple)
+	{
+		appenderParams.put(LogConstants.IMPLEMENTATION_CLASS, "org.apache.log4j.ext.JoeSNMPTrapSender");
+		appenderParams.put(LogConstants.SNMP_MANAGEMENT_HOST, simple.getManagementHost());
+		appenderParams.put(LogConstants.SNMP_MANAGEMENT_PORT, Integer.toString(simple.getManagementPort()));
+		appenderParams.put(LogConstants.SNMP_ENTERPRISE_OID, ENTERPRISE_OID);
+		
+		String localIP = "127.0.0.1";
+		try
+		{
+			localIP = Inet4Address.getLocalHost().getHostAddress();
+		}
+		catch (UnknownHostException e)
+		{
+			logger.warn("No IPv4 address found, defaulting to '127.0.0.1'", e);
+		}
+		appenderParams.put(LogConstants.SNMP_LOCAL_IP, localIP);
+		
+		appenderParams.put(LogConstants.SNMP_OUTGOING_PORT, Integer.toString(simple.getOutgoingPort()));
+		appenderParams.put(LogConstants.SNMP_GENERIC_TYPE, "6");
+		appenderParams.put(LogConstants.SNMP_SPECIFIC_TYPE, "0");
+		appenderParams.put(LogConstants.SNMP_COMMUNITY_STRING, simple.getCommunity());
+		appenderParams.put(LogConstants.SNMP_FORWARD_TRACE, "false");
+		appenderParams.put(LogConstants.SNMP_APPLICATION_OID, APPLICATION_OID);
+	    
+	    
+	    
+	    appenderParams.put(LogConstants.LAYOUT, simple.getLayout());
+	    appenderParams.put(LogConstants.LEVEL, simple.getLevel().toString().toLowerCase());
+	    appenderParams.put(LogConstants.NAME, simple.getName());
+	    if (simple.isEnabled())
+	    {
+	    	enable();
+	    }
+	}
+	
+	@Override
+	public Element toLog4jXml()
+	{
+		Element root = getRootLog4jElement();
+		root.getAttributes().add(new Attribute("class", log4jClass));
+		
+		Element implementationClass = new Element("param");
+		implementationClass.getAttributes().add(new Attribute("name", LogConstants.IMPLEMENTATION_CLASS));
+		implementationClass.getAttributes().add(new Attribute("value", appenderParams.get(LogConstants.IMPLEMENTATION_CLASS)));
+		
+		Element managementHost = new Element("param");
+		managementHost.getAttributes().add(new Attribute("name", LogConstants.SNMP_MANAGEMENT_HOST));
+		managementHost.getAttributes().add(new Attribute("value", appenderParams.get(LogConstants.SNMP_MANAGEMENT_HOST)));
+		
+		Element managementPort = new Element("param");
+		managementPort.getAttributes().add(new Attribute("name", LogConstants.SNMP_MANAGEMENT_PORT));
+		managementPort.getAttributes().add(new Attribute("value", appenderParams.get(LogConstants.SNMP_MANAGEMENT_PORT)));
+		
+		Element enterpriseOID = new Element("param");
+		enterpriseOID.getAttributes().add(new Attribute("name", LogConstants.SNMP_ENTERPRISE_OID));
+		enterpriseOID.getAttributes().add(new Attribute("value", appenderParams.get(LogConstants.SNMP_ENTERPRISE_OID)));
+		
+		Element localIP = new Element("param");
+		localIP.getAttributes().add(new Attribute("name", LogConstants.SNMP_LOCAL_IP));
+		localIP.getAttributes().add(new Attribute("value", appenderParams.get(LogConstants.SNMP_LOCAL_IP)));
+		
+		Element outgoingPort = new Element("param");
+		outgoingPort.getAttributes().add(new Attribute("name", LogConstants.SNMP_OUTGOING_PORT));
+		outgoingPort.getAttributes().add(new Attribute("value", appenderParams.get(LogConstants.SNMP_OUTGOING_PORT)));
+		
+		Element genericType = new Element("param");
+		genericType.getAttributes().add(new Attribute("name", LogConstants.SNMP_GENERIC_TYPE));
+		genericType.getAttributes().add(new Attribute("value", appenderParams.get(LogConstants.SNMP_GENERIC_TYPE)));
+		
+		Element specificType = new Element("param");
+		specificType.getAttributes().add(new Attribute("name", LogConstants.SNMP_SPECIFIC_TYPE));
+		specificType.getAttributes().add(new Attribute("value", appenderParams.get(LogConstants.SNMP_SPECIFIC_TYPE)));
+		
+		Element community = new Element("param");
+		community.getAttributes().add(new Attribute("name", LogConstants.SNMP_COMMUNITY_STRING));
+		community.getAttributes().add(new Attribute("value", appenderParams.get(LogConstants.SNMP_COMMUNITY_STRING)));
+		
+		Element forwardTrace = new Element("param");
+		forwardTrace.getAttributes().add(new Attribute("name", LogConstants.SNMP_FORWARD_TRACE));
+		forwardTrace.getAttributes().add(new Attribute("value", appenderParams.get(LogConstants.SNMP_FORWARD_TRACE)));
+		
+		Element applicationOID = new Element("param");
+		applicationOID.getAttributes().add(new Attribute("name", LogConstants.SNMP_APPLICATION_OID));
+		applicationOID.getAttributes().add(new Attribute("value", appenderParams.get(LogConstants.SNMP_APPLICATION_OID)));
+		
+		Element layout = getLayoutLog4jElement();
+		
+		// append all children
+		root.addContent(implementationClass);
+		root.addContent(managementHost);
+		root.addContent(managementPort);
+		root.addContent(enterpriseOID);
+		root.addContent(localIP);
+		root.addContent(outgoingPort);
+		root.addContent(genericType);
+		root.addContent(specificType);
+		root.addContent(community);
+		root.addContent(forwardTrace);
+		root.addContent(applicationOID);
+		root.addContent(layout);
+		
+		return root;
+	}
+	
+	public String getManagementHost()
+	{
+		return appenderParams.get(LogConstants.SNMP_MANAGEMENT_HOST);
+	}
+	
+	public String getManagementPort()
+	{
+		return appenderParams.get(LogConstants.SNMP_MANAGEMENT_PORT);
+	}
+	
+	public String getOutgoingPort()
+	{
+		return appenderParams.get(LogConstants.SNMP_OUTGOING_PORT);
+	}
+	
+	public String getCommunity()
+	{
+		return appenderParams.get(LogConstants.SNMP_COMMUNITY_STRING);
+	}
+
+	public SimpleSnmpAppender toSimpleAppender() throws NumberFormatException
+	{
+		SimpleSnmpAppender simple = new SimpleSnmpAppender();
+	    simple.setEnabled(true);
+	    simple.setManagementHost(appenderParams.get(LogConstants.SNMP_MANAGEMENT_HOST));
+	    simple.setManagementPort(Integer.parseInt(appenderParams.get(LogConstants.SNMP_MANAGEMENT_PORT)));
+	    simple.setOutgoingPort(Integer.parseInt(appenderParams.get(LogConstants.SNMP_OUTGOING_PORT)));
+	    simple.setCommunity(appenderParams.get(LogConstants.SNMP_COMMUNITY_STRING));
+	    simple.setLayout(appenderParams.get(LogConstants.LAYOUT));
+	    simple.setLevel(LogLevel.valueOf(appenderParams.get(LogConstants.LEVEL).toUpperCase()));
+	    simple.setName(appenderParams.get(LogConstants.NAME));
+	    
+	    return simple;
+	}
+
+}

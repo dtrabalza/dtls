@@ -1,0 +1,257 @@
+/// OamHandler.java
+//-----------------------------------------------------------------------
+//  Language:						Java Version 1.2.
+//
+//  COPYRIGHT Ericsson España, S.A. 2000
+//  All rights reserved.
+//
+//  The Copyright to the computer program(s) herein
+//  is the property of Ericsson España, S.A.
+//  The program(s) may be used and/or copied only
+//  with the written permission from Ericsson España, S.A.,
+//  or in accordance with the terms and conditions
+//  stipulated in the agreement/contract under which the program(s)
+//  have been supplied.
+//
+//  Ericsson is in no way responsible for usage and adaptation of this
+//  source by third parties, nor liable for any consequences of this.
+//  This is the responsibility of the third party.
+//-----------------------------------------------------------------------
+//-----------------------------------------------------------------------
+//
+// DOCUMENT NO
+//      190 89-1/CAX 103 0076
+//
+//      Subsystem            : GIPS    CRX 901 81
+//        Software unit      : OAM_SUPPORT 1/CAX 103 0076
+// AUTHOR
+//      2000-10-17 by EEM/TD/MFZ 	J. Félix Morata Perea
+//                               	consultor.ecetmn2@ece.ericsson.se
+// CHANGES
+//	DATE		    NAME		  DESCRIPTION
+//	2000-10-06	ECETMN2		First revision.
+//  2000-11-10  ECEPPC    Integration with new Htpps Package
+//  2001-01-08  ECETMN2   Initiation of Passcryto, RandomGenerator and DBConnectionManager.
+//                            Takes trace level from properties file.
+//  2002-02-23  ECEPPC    HC45848 default trace level set to NONE and by default
+//                        the server type is SSL
+//  2001-02-26  eceppc    HC46228 version information printed at start time 
+//
+//  2001-03-27  ECEPPC    HC51663 setting DBConnectionManager.configurationFileC
+//                        variable to OamManager.PROPERTIES_FILE removed.
+//  2001-04-09  ECEPPC    HC51663 setting OamHandler porperties file to GipsServer
+//                        Properties.PROPERTIES_FILE.
+//-----------------------------------------------------------------------
+//-----------------------------------------------------------------------
+//Package Definition
+package com.mideye.services.oam_hdl;
+
+// Import Packages
+import java.io.File;
+
+import org.apache.log4j.xml.DOMConfigurator;
+import org.glassfish.embeddable.Deployer;
+import org.glassfish.embeddable.GlassFish;
+import org.glassfish.embeddable.GlassFishProperties;
+import org.glassfish.embeddable.GlassFishRuntime;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.mideye.crypto.RandomGenerator;
+import com.mideye.db.dbapi.DBATable;
+import com.mideye.db.dbapi.DBConnectionManager;
+import com.mideye.db.dbapi.ParameterAPI;
+import com.mideye.db.dbapi.Tables;
+import com.mideye.logmanager.LogProperties;
+import com.mideye.protocols.https.SSLClientLink;
+import com.mideye.protocols.https.SSLServerLink;
+import com.mideye.server_core.algorithm_hdl.PassCrypto;
+import com.mideye.utilities.GException;
+import com.mideye.utilities.GipsServerProperties;
+import com.mideye.utilities.ObjectsContainer;
+import com.mideye.utilities.UncaughtExceptionHandler;
+
+
+//------------------------------------------------------------------------------
+/**
+ * <p>
+ * This class implements a synchronous Https server.
+ * </p>
+ */
+//------------------------------------------------------------------------------
+public class OamHandler
+{
+	private static final Logger logger = LoggerFactory.getLogger(OamHandler.class);
+
+  private static boolean bRunning = false;
+  private int myPort = 0;
+  
+  //----------------------------------------------------------------------------
+  /**
+   * <p>
+   * Creates an OamHandler objects and call serverHandler to start listening.
+   * </p>
+ * @throws Exception 
+   */
+  //----------------------------------------------------------------------------
+  public static void
+  main(String[] args) throws Exception
+  {
+    try
+    {
+	  Thread.setDefaultUncaughtExceptionHandler(new UncaughtExceptionHandler());
+	  LogProperties logProperties = new LogProperties();
+	  DOMConfigurator.configureAndWatch(logProperties.webManagerLogConfig());
+      logger.trace(">>> ENTER");
+      
+      OamHandler hndOam = new OamHandler();
+      logger.debug("Initiating OamHandler");
+      hndOam.serverHandler();
+      
+		GlassFishProperties glassfishProperties = new GlassFishProperties();
+		glassfishProperties.setPort("http-listener", 8080);
+		//	    glassfishProperties.setPort("http-listener", 8081);
+		
+		glassfishProperties.setProperty("address", "any");
+		
+		GlassFish glassfish = GlassFishRuntime.bootstrap().newGlassFish(glassfishProperties);
+		glassfish.start();
+		
+		logger.info("Glassfish server started");
+		File war = new File(args[0]);
+		Deployer deployer = glassfish.getDeployer();
+		deployer.deploy(war, "--name=MideyeWebAdmin", "--contextroot=/", "--force=true");
+		logger.info(war.getName() + " deployed");
+		
+    }
+    // TODO: should we remove one of these?
+    catch(GException e)
+    {
+      // Sending event
+      logger.error("Error starting OAM handler", e);
+      System.exit(496);
+    }
+    catch(Exception e)
+    {
+      // Sending event
+      logger.error("Error starting OAM handler", e);
+      System.exit(496);
+    }
+    finally
+    {
+        logger.trace("<<< EXIT");
+    }
+  }
+  //----------------------------------------------------------------------------
+  /**
+   * <p>
+   *  Sets internal variable to false to stopping listening accepting requests.
+   * </p>
+   */
+  //----------------------------------------------------------------------------
+  public static void
+  stop()
+  {
+    bRunning = false;
+  }
+  //----------------------------------------------------------------------------
+  /**
+   * <p>
+   * Desfault constructor reads configuration from properties file.
+   * </p>
+   * @exception GException.GIPS_OAM_SUPPORT_OAM_PROPERTIES_NOT_FOUND if there is
+   * any error looking properties file.
+   */
+  //----------------------------------------------------------------------------
+  public
+  OamHandler()
+    throws GException
+  {
+    logger.trace(">>> ENTER");
+    
+    // Initiating Passcryto, RandomGenerator and DDConnectionManager
+    try
+    {
+       logger.debug("Initiating PassCrypto, RandomGenerator and DBConnectionManager");
+       PassCrypto.getInstance();
+       RandomGenerator.getInstance();
+       DBConnectionManager.getInstance();
+       // Reading the port used to listen connections
+       DBATable oTable = new DBATable();
+       oTable.setTableId(Tables.CONF_PARAM);
+       ObjectsContainer oConfiguration = oTable.getAllRegisters();
+       ParameterAPI oParameter = (ParameterAPI)oConfiguration.getObjectAt("OAM_AUTH_PORT");
+       myPort = Integer.parseInt(oParameter.getValue());
+       
+       logger.debug("Initiation finished");
+    }
+    catch (GException ex)
+    {
+       // If there are some error
+       switch (ex.getCode())
+       {
+          case GException.PASS_ENCRYPTION_INIT_ERROR:
+              logger.error("Encountered an error while initiating PassCrypto", ex);
+              break;
+          default:
+              logger.error("Encountered an error while initiating DBConnectionManager", ex);
+       }
+       throw ex;
+    }
+    finally
+    {
+    	logger.trace("<<< EXIT");
+    }
+
+  }
+
+  //----------------------------------------------------------------------------
+  /**
+   * <p>
+   * This method waits connection requests and creates one thread per each request
+   * to attend that communicacion.
+   * </p>
+   * @exception GException it can be an ssl package exception or if any uncontrolled
+   *          error happens at run time GException.GIPS_OAM_SUPPORT_ERROR_WHILE_ACCEPTING_REQUESTS
+   */
+  //----------------------------------------------------------------------------
+	public void
+  serverHandler()
+  throws GException
+	{
+    logger.trace(">>> ENTER");
+    logger.debug("Initiating HTTP (server part)");
+    
+    SSLServerLink sLink = new SSLServerLink ( myPort);
+    logger.debug("SSLServer socket initiated on port {}", myPort);
+    
+    bRunning = true;
+    try
+    {
+    	// TODO: what about System.out.println?
+      System.out.println(GipsServerProperties.VERSION +  " OAM Handler running.");
+      // Reading incoming http request
+      while (bRunning)
+      {
+        logger.debug("Accepting incoming requests");
+        //Accepting request
+        SSLClientLink connectedSocket = (SSLClientLink)sLink.accept();
+
+        ThreadHandler thread = new ThreadHandler(connectedSocket);
+        thread.start();
+      }
+    }
+    catch ( Exception ex )
+    {
+      // TODO: what about this?
+      logger.warn("Error in HTTPS (server part), throwing exception");
+      throw new GException (GException.GIPS_OAM_SUPPORT_ERROR_WHILE_ACCEPTING_REQUESTS,
+          ex.getMessage(), ex);
+    }
+    finally
+    {
+    	logger.trace("<<< EXIT");
+    }
+	}
+
+}

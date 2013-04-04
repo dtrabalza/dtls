@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ====================================================================== 
+     Jul 15, 2010 11:16:30 AM                                                        
+
+     Mideye-Server    
+     Mideye Server
+                   
+     matthias                                                                
+     ====================================================================== -->
+<project name="Mideye-Server" default="test">
+    <description>
+            Mideye Server
+    </description>
+	
+	<property name="src.dir" value="src" />
+	<property name="test.dir" value="test" />
+	<property name="build.dir" value="build" />
+	<property name="classes.dir" value="${build.dir}/classes" />
+	<property name="test_classes.dir" value="${build.dir}/test" />
+	<property name="jar.dir" value="${build.dir}/jar" />
+	<property name="lib.dir" value="lib" />
+	
+	<property name="report.dir"  value="${build.dir}/junitreport" />
+
+	<path id="classpath">
+		<fileset dir="${lib.dir}" includes="**/*.jar" />
+	</path>
+	
+	<path id="application" location="${jar.dir}/mideye_server.jar" />
+	
+	<target name="clean">
+		<delete dir="${build.dir}" />
+	</target>
+	
+	<target name="compile">
+		<mkdir dir="${classes.dir}" />
+		<javac srcdir="src" destdir="${classes.dir}" debug="true" debuglevel="lines,vars,source" classpathref="classpath" encoding="utf-8" target="1.7" source="1.7"/>
+	</target>
+	
+	<target name="jar" depends="compile">
+		<mkdir dir="${jar.dir}" />
+		<copy todir="${classes.dir}">
+			<fileset dir="${src.dir}" excludes="**/*.java" />
+		</copy>
+		<jar destfile="${jar.dir}/mideye_server.jar" basedir="${classes.dir}" />
+		<copy file="${jar.dir}/mideye_server.jar" tofile="${jar.dir}/mideye_server_oam.jar" />
+	</target>
+	
+	<target name="compile_tests">
+		<mkdir dir="${test_classes.dir}" />
+		<javac srcdir="${test.dir}" destdir="${test_classes.dir}" debug="true" debuglevel="lines,vars,source" classpathref="classpath" encoding="utf-8" target="1.7" source="1.7">
+			<classpath>
+				<path refid="classpath" />
+				<path location="${classes.dir}" />
+			</classpath>
+		</javac>
+	</target>
+	
+	<target name="test" depends="jar, compile_tests">
+		<mkdir dir="${report.dir}" />
+		
+		<copy todir="${test_classes.dir}">
+			<fileset dir="${test.dir}" excludes="**/*.java" />
+		</copy>
+		 
+		<junit printsummary="yes" showoutput="true">
+			<jvmarg value="-Dfile.encoding=UTF-8 "/>
+			<classpath>
+				<path refid="classpath" />
+				<path location="${test_classes.dir}" />
+				<path location="${classes.dir}" />
+			</classpath>
+			
+			<formatter type="xml" />
+			
+			<batchtest fork="yes" todir="${report.dir}">
+				<fileset dir="${test.dir}" includes="**/*Test.java" />
+			</batchtest>
+		</junit>
+	</target>
+
+	<target name="junitreport" depends="test">
+        <junitreport todir="${report.dir}">
+            <fileset dir="${report.dir}" includes="TEST-*.xml"/>
+            <report todir="${report.dir}"/>
+        </junitreport>
+    </target>
+</project>

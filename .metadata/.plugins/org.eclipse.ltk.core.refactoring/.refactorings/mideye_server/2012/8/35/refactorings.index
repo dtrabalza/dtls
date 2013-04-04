@@ -1,0 +1,7 @@
+1346337675078	Extract method 'removeTimer'
+1346337693694	Rename method 'removeTimer'
+1346338134739	Extract method 'removeAuthAttr'
+1346414412323	Rename local variable 'nasClient'
+1346414688413	Rename method 'getNasClient'
+1346414696213	Rename method 'setNasClient'
+1346414701410	Rename field 'nasClient'

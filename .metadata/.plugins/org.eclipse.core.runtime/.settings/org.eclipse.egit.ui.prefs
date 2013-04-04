@@ -1,0 +1,24 @@
+//BranchProjectTracker__/Users/daniele/Programming/workspace/mideyeserver/.git_0862545c5db57b7bcf29d4594cdf7f4071594449=<?xml version\="1.0" encoding\="UTF-8"?>\n<projects branch\="0862545c5db57b7bcf29d4594cdf7f4071594449">\n<project>/</project>\n</projects>
+//BranchProjectTracker__/Users/daniele/Programming/workspace/mideyeserver/.git_08aeac8b500ddbe90df8497fd0da124840681c16=<?xml version\="1.0" encoding\="UTF-8"?>\n<projects branch\="08aeac8b500ddbe90df8497fd0da124840681c16">\n<project>/</project>\n</projects>
+//BranchProjectTracker__/Users/daniele/Programming/workspace/mideyeserver/.git_21831c2a7ce8382f94da3fe8aa4a69a9d427ad53=<?xml version\="1.0" encoding\="UTF-8"?>\n<projects branch\="21831c2a7ce8382f94da3fe8aa4a69a9d427ad53">\n<project>/</project>\n</projects>
+//BranchProjectTracker__/Users/daniele/Programming/workspace/mideyeserver/.git_2bce9a656adfd5a0686cb5cea792d3db3bcfadcc=<?xml version\="1.0" encoding\="UTF-8"?>\n<projects branch\="2bce9a656adfd5a0686cb5cea792d3db3bcfadcc">\n<project>/</project>\n</projects>
+//BranchProjectTracker__/Users/daniele/Programming/workspace/mideyeserver/.git_4.2.5_dev=<?xml version\="1.0" encoding\="UTF-8"?>\n<projects branch\="4.2.5_dev">\n<project>/</project>\n</projects>
+//BranchProjectTracker__/Users/daniele/Programming/workspace/mideyeserver/.git_ad29553d490c0612e7645e04e2b5868b771c7138=<?xml version\="1.0" encoding\="UTF-8"?>\n<projects branch\="ad29553d490c0612e7645e04e2b5868b771c7138"/>
+//BranchProjectTracker__/Users/daniele/Programming/workspace/mideyeserver/.git_develop=<?xml version\="1.0" encoding\="UTF-8"?>\n<projects branch\="develop">\n<project>/</project>\n</projects>
+//BranchProjectTracker__/Users/daniele/Programming/workspace/mideyeserver/.git_fb_ClientCert=<?xml version\="1.0" encoding\="UTF-8"?>\n<projects branch\="fb_ClientCert">\n<project>/</project>\n</projects>
+//BranchProjectTracker__/Users/daniele/Programming/workspace/mideyeserver/.git_fb_Configurator=<?xml version\="1.0" encoding\="UTF-8"?>\n<projects branch\="fb_Configurator">\n<project>/</project>\n</projects>
+//BranchProjectTracker__/Users/daniele/Programming/workspace/mideyeserver/.git_fb_SelfSignedCert=<?xml version\="1.0" encoding\="UTF-8"?>\n<projects branch\="fb_SelfSignedCert">\n<project>/</project>\n</projects>
+//BranchProjectTracker__/Users/daniele/Programming/workspace/mideyeserver/.git_fb_newLoggingSystem=<?xml version\="1.0" encoding\="UTF-8"?>\n<projects branch\="fb_newLoggingSystem">\n<project>/</project>\n</projects>
+//BranchProjectTracker__/Users/daniele/Programming/workspace/mideyeserver/.git_fb_selfSignedCert=<?xml version\="1.0" encoding\="UTF-8"?>\n<projects branch\="fb_selfSignedCert">\n<project>/</project>\n</projects>
+//BranchProjectTracker__/Users/daniele/Programming/workspace/mideyeserver/.git_master=<?xml version\="1.0" encoding\="UTF-8"?>\n<projects branch\="master">\n<project>/</project>\n</projects>
+//BranchProjectTracker__/Users/daniele/Programming/workspace/mideyeserver/.git_testTomEE=<?xml version\="1.0" encoding\="UTF-8"?>\n<projects branch\="testTomEE">\n<project>/</project>\n</projects>
+commit_dialog_history_messages=<?xml version\="1.0" encoding\="UTF-8"?>\n<messages>\n<message>popup fixes</message>\n<message>fixed conflicts</message>\n<message>-Added CertificateUtilsTest&\#x0A;-Generalized test added one helper to create temporary folder structure&\#x0A;during tests</message>\n<message>created test class</message>\n<message>Added tests and small fixes</message>\n<message>cert generation working; improve commands and do tests</message>\n<message>added logging</message>\n<message>(Simon) Reverted changes/removals in order to get the old way of&\#x0A;upgrading the database during install time on Windows working again.</message>\n<message>Bugfix\: fixed JVM folder for linux 32bit systems</message>\n<message>-Bugfix\: LDAPS fix&\#x0A;Log improvements</message>\n</messages>
+commit_dialog_push_upstream=true
+decorator_show_dirty_icon=true
+eclipse.preferences.version=1
+merge_mode=0
+refesh_on_index_change=false
+refesh_only_when_active=false
+resourcehistory_graph_split=500,500
+resourcehistory_rev_split=700,300
+show_initial_config_dialog=false

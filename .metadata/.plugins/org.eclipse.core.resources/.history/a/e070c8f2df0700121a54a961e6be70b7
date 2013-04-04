@@ -1,0 +1,22 @@
+import javax.ejb.embeddable.EJBContainer;
+
+
+
+public class RunTomEE
+{
+
+	/**
+	 * @param args
+	 */
+	public static void main(String[] args)
+	{
+		Properties p = newProperties();
+		p.setProperty(EJBContainer.APP_NAME, "moviefun");
+		p.setProperty(EJBContainer.PROVIDER, "tomee-embedded");// needwebfeature
+		p.setProperty(EJBContainer.MODULES, webApp.getAbsolutePath());
+		p.setProperty(EmbeddedTomEEContainer.TOMEE_EJBCONTAINER_HTTP_PORT,"8080");
+		container = EJBContainer.createEJBContainer(p);
+
+	}
+
+}

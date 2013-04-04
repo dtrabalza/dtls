@@ -1,0 +1,169 @@
+package com.mideye.administration_ui.log_config;
+
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.rmi.RemoteException;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Map.Entry;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.mideye.administration_ui.HelpDialogHelper;
+import com.mideye.administration_ui.HelpSection;
+import com.mideye.administration_ui.IConfigTool;
+import com.mideye.exceptions.GeneralSettingsException;
+import com.mideye.logmanager.EventViewAppender;
+import com.mideye.logmanager.FileAppender;
+import com.mideye.logmanager.LogConfig;
+import com.mideye.logmanager.LogId;
+import com.mideye.logmanager.LogProcess;
+import com.mideye.logmanager.SnmpAppender;
+import com.mideye.logmanager.SyslogAppender;
+import com.mideye.utilities.GenericService;
+
+public class LogConfigPresenter
+{
+	private static final Logger logger = LoggerFactory.getLogger(LogConfigPresenter.class);
+	private final IConfigTool configTool;
+	private final GenericService genericService;
+	private LogConfigView configView;
+	private IProcessPresenter currentProcessPresenter = null;
+	private final Map<String, IProcessPresenter> presenters;
+	
+	public LogConfigPresenter(GenericService genericService,
+			IConfigTool configTool, Map<String, IProcessPresenter> presenters)
+	{
+		this.genericService = genericService;
+		this.configTool = configTool;
+		this.presenters = Collections.unmodifiableMap(
+				new HashMap<String, IProcessPresenter>(presenters));
+	}
+	
+	public void setView(LogConfigView view)
+	{
+		configView = view;
+	}
+	
+	public void configure()
+	{
+		configView.addProcessChangeListener(new ActionListener()
+		{
+			public void actionPerformed(ActionEvent e)
+			{
+				String selectedProcess = configView.getSelectedProcess();
+				
+				if (genericService == null)
+				{
+					configView.setTraceEnabled(false);
+				}
+				else
+				{
+					configView.setTraceEnabled(
+							IProcessPresenter.RADIUS_SERVER.equals(selectedProcess));
+				}
+				
+				saveCurrentModel();
+				currentProcessPresenter = presenters.get(selectedProcess);
+				currentProcessPresenter.configure();
+			}
+		});
+		
+		configView.addTraceButtonListener(new ActionListener()
+		{
+			public void actionPerformed(ActionEvent event)
+			{
+				String selectedProcess = configView.getSelectedProcess();
+				if (IProcessPresenter.RADIUS_SERVER.equals(selectedProcess))
+				{
+					try
+					{
+						genericService.startTrace();
+						configTool.showBlockingMessageDialog("RADIUS trace is running...", "RADIUS trace", "Stop");
+						genericService.stopTrace();
+					}
+					catch (RemoteException ex)
+					{
+						// TODO: Present this to the user somehow
+						logger.error("Could not start/stop the radius trace", ex);
+					}
+				}
+				else
+				{
+					throw new IllegalStateException("Process '" + selectedProcess + "' cannot start a trace");
+				}
+			}
+		});
+		
+		configView.addSaveButtonListener(new ActionListener()
+		{
+			public void actionPerformed(ActionEvent e)
+			{
+				saveCurrentModel();
+				configTool.saveConfiguration();
+			}
+		});
+		
+		configView.addCloseButtonListener(new ActionListener()
+		{
+			public void actionPerformed(ActionEvent e)
+			{
+				configTool.closeConfigTool();
+			}
+		});
+		
+		configView.addHelpButtonListener(new ActionListener()
+		{
+			public void actionPerformed(ActionEvent e)
+			{
+				HelpDialogHelper.createHelp(HelpSection.HS_LOGCONFIG);
+			}
+		});
+	}
+	
+	public void saveCurrentModel()
+	{
+		if (currentProcessPresenter != null)
+		{
+			currentProcessPresenter.saveToModel();
+		}
+	}
+	
+	public IProcessPresenter getCurrentProcessPresenter()
+	{
+		return currentProcessPresenter;
+	}
+	
+	public Map<String, SimpleProcess> createConfiguration()
+	{
+		Map<String, SimpleProcess> result = new HashMap<String, SimpleProcess>();
+		for (Entry<String, IProcessPresenter> presenterEntry : presenters.entrySet())
+		{
+			result.put(presenterEntry.getKey(),
+					presenterEntry.getValue().createSimpleProcess());
+		}
+		return result;
+	}
+	
+	public LogConfig createLogConfig()
+	{
+		Map<String, LogProcess> processes = new HashMap<String, LogProcess>();
+		for (Entry<String, IProcessPresenter> presenterEntry : presenters.entrySet())
+		{
+			SimpleProcess simpleProcess = presenterEntry.getValue().createSimpleProcess();
+			LogProcess logProcess = new LogProcess(presenterEntry.getKey(),
+					new FileAppender(simpleProcess.getFileAppender()),
+					new SyslogAppender(simpleProcess.getSyslogAppender()),
+					new EventViewAppender(simpleProcess.getEventViewAppender()),
+					new SnmpAppender(simpleProcess.getSnmpAppender()));
+			processes.put(presenterEntry.getKey(), logProcess);
+		}
+		
+		return new LogConfig(LogId.newInstance(),
+				processes.get(IProcessPresenter.ALARM_MANAGER),
+				processes.get(IProcessPresenter.RADIUS_SERVER),
+				processes.get(IProcessPresenter.WEB_ADMIN));
+	}
+}

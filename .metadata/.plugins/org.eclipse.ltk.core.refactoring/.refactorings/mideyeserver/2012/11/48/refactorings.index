@@ -1,0 +1,8 @@
+1354178985538	Delete element
+1354187891455	Extract method 'getCertPath'
+1354188197299	Extract method 'getKeystoreFile'
+1354193250067	Rename local variable 'relativeServer_XML_file'
+1354193298871	Extract method 'getTomcatServerXMLFilePathString'
+1354193501375	Rename method 'getTomcatServerXMLFilePathString'
+1354194116112	Rename local variable 'server_XML_file'
+1354194165730	Rename method 'getKeystoreFile'

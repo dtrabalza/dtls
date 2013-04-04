@@ -1,0 +1,11 @@
+1362394820965	Delete element
+1362395213835	Delete element
+1362488355619	Rename local variable 'password'
+1362493627296	Rename method 'keyStoreParametersAreCorrect'
+1362673327374	Rename field 'TMP_TOMCAT_FOLDER'
+1362673389447	Rename field 'TMP_TOMCAT_CONF_FOLDER'
+1362673681495	Rename field 'VIRTUAL_TOMCAT_FOLDER'
+1362749888367	Rename field 'certificatePath'
+1362758113222	Delete element
+1362758329932	Delete element
+1362758379448	Move compilation unit

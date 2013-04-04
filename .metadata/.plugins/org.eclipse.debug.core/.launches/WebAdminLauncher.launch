@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<launchConfiguration type="org.eclipse.jdt.launching.localJavaApplication">
+<listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_PATHS">
+<listEntry value="/TestEmbedded/src/WebAdminLauncher.java"/>
+</listAttribute>
+<listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_TYPES">
+<listEntry value="1"/>
+</listAttribute>
+<stringAttribute key="org.eclipse.jdt.launching.MAIN_TYPE" value="WebAdminLauncher"/>
+<stringAttribute key="org.eclipse.jdt.launching.PROGRAM_ARGUMENTS" value="/Users/daniele/Programming/NetBeansProjects/MideyeWebAdmin/build/MideyeWebAdmin-war.war"/>
+<stringAttribute key="org.eclipse.jdt.launching.PROJECT_ATTR" value="TestEmbedded"/>
+<stringAttribute key="org.eclipse.jdt.launching.VM_ARGUMENTS" value="-cp /Users/daniele/Programming/servers/"/>
+</launchConfiguration>

@@ -1,0 +1,185 @@
+package com.mideye.logmanager;
+
+public class SimpleSnmpAppender
+{
+	/* ########## CONSTANTS ########## */
+	
+	private final String DEFAULT_NAME = "DefaultSNMPAppender";
+	
+	/* ########## END OF CONSTANTS ########## */
+	
+    private boolean enabled;
+    private String managementHost;
+    private int managementPort;
+    private int outgoingPort;
+    private String community;
+    private String layout;
+    private LogLevel level;
+    private String name;
+	
+    public SimpleSnmpAppender()
+    {
+        this.enabled = false;
+        this.managementHost = SnmpAppender.DEFAULT_MANAGEMENT_HOST;
+        this.managementPort = SnmpAppender.getDefaultManagementPort();
+        this.outgoingPort = SnmpAppender.getDefaultOutgoingPort();
+        this.community = SnmpAppender.DEFAULT_COMMUNITY;
+        // layout is e.g., "INFO <message><newline>"
+        this.layout = "%5p %m%n";
+        this.level = LogLevel.ERROR;
+        this.name = DEFAULT_NAME;
+    }
+    
+    public SimpleSnmpAppender(SimpleSnmpAppender other)
+    {
+        this.enabled = other.enabled;
+        this.managementHost = other.managementHost;
+        this.managementPort = other.managementPort;
+        this.outgoingPort = other.outgoingPort;
+        this.community = other.community;
+        this.layout = other.layout;
+        this.level = other.level;
+        this.name = other.name;
+    }
+
+	public boolean isEnabled()
+	{
+		return enabled;
+	}
+
+	public void setEnabled(boolean enabled)
+	{
+		this.enabled = enabled;
+	}
+
+	public String getManagementHost()
+	{
+		return managementHost;
+	}
+
+	public void setManagementHost(String managementHost)
+	{
+		this.managementHost = managementHost;
+	}
+
+	public int getManagementPort()
+	{
+		return managementPort;
+	}
+
+	public void setManagementPort(int managementPort)
+	{
+		this.managementPort = managementPort;
+	}
+
+	public int getOutgoingPort()
+	{
+		return outgoingPort;
+	}
+
+	public void setOutgoingPort(int outgoingPort)
+	{
+		this.outgoingPort = outgoingPort;
+	}
+
+	public String getCommunity()
+	{
+		return community;
+	}
+
+	public void setCommunity(String community)
+	{
+		this.community = community;
+	}
+
+	public String getLayout()
+	{
+		return layout;
+	}
+
+	public void setLayout(String layout)
+	{
+		this.layout = layout;
+	}
+
+	public LogLevel getLevel()
+	{
+		return level;
+	}
+
+	public void setLevel(LogLevel level)
+	{
+		this.level = level;
+	}
+
+	public String getName()
+	{
+		return name;
+	}
+
+	public void setName(String name)
+	{
+		this.name = name;
+	}
+
+	@Override
+	public boolean equals(Object obj)
+	{
+		if (this == obj)
+			return true;
+		if (obj == null)
+			return false;
+		if (getClass() != obj.getClass())
+			return false;
+		SimpleSnmpAppender other = (SimpleSnmpAppender) obj;
+		if (community == null)
+		{
+			if (other.community != null)
+				return false;
+		}
+		else if (!community.equals(other.community))
+			return false;
+		if (enabled != other.enabled)
+			return false;
+		if (layout == null)
+		{
+			if (other.layout != null)
+				return false;
+		}
+		else if (!layout.equals(other.layout))
+			return false;
+		if (level != other.level)
+			return false;
+		if (managementHost == null)
+		{
+			if (other.managementHost != null)
+				return false;
+		}
+		else if (!managementHost.equals(other.managementHost))
+			return false;
+		if (managementPort != other.managementPort)
+			return false;
+		if (name == null)
+		{
+			if (other.name != null)
+				return false;
+		}
+		else if (!name.equals(other.name))
+			return false;
+		if (outgoingPort != other.outgoingPort)
+			return false;
+		return true;
+	}
+
+	@Override
+	public String toString()
+	{
+		return "SimpleSnmpAppender [enabled=" + enabled + ", managementHost="
+				+ managementHost + ", managementPort=" + managementPort
+				+ ", outgoingPort=" + outgoingPort + ", community=" + community
+				+ ", layout=" + layout + ", level=" + level + ", name=" + name
+				+ "]";
+	}
+	
+
+}

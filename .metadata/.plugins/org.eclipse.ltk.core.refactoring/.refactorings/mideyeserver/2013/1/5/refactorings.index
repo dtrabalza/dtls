@@ -1,0 +1,7 @@
+1359622929033	Rename local variable 'spinner'
+1359624129893	Rename local variable 'ldapPoolSizeSpinner'
+1359639057468	Rename local variable 'rootCredential'
+1359639344979	Rename local variable 'path'
+1359639367665	Rename field 'CERT_STORE_FILE_PATH'
+1359646640479	Rename local variable 'clientCert'
+1359646928263	Extract method 'addConditionalGenerateClientCert'

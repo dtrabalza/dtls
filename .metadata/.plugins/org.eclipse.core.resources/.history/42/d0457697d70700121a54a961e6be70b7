@@ -1,0 +1,15 @@
+public class RunTomEE
+{
+
+	/**
+	 * @param args
+	 */
+	public static void main(String[] args)
+	{
+		Propertiesp = newProperties();
+		p.setProperty(EJBContainer.APP_NAME, "moviefun");
+		p.setProperty(EJBContainer.PROVIDER, "tomee-embedded");// needwebfeaturep.setProperty(EJBContainer.MODULES,webApp.getAbsolutePath());p.setProperty(EmbeddedTomEEContainer.TOMEE_EJBCONTAINER_HTTP_PORT,"9999");container=EJBContainer.createEJBContainer(p);
+
+	}
+
+}

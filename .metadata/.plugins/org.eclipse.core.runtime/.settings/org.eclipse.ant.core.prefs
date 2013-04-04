@@ -1,0 +1,3 @@
+eclipse.preferences.version=1
+properties=build.compiler,
+property.build.compiler=javac1.7

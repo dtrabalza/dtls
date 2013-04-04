@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<session version="1.0">
+<refactoring comment="Delete resource &apos;mideyeserver/src/com/mideye/exceptions/PasswordNotValidException.java&apos;" deleteContents="false" description="Delete resource &apos;mideyeserver/src/com/mideye/exceptions/PasswordNotValidException.java&apos;" element1="/mideyeserver/src/com/mideye/exceptions/PasswordNotValidException.java" flags="7" id="org.eclipse.ltk.core.refactoring.delete.resources" resources="1" stamp="1358942320419"/>
+</session>

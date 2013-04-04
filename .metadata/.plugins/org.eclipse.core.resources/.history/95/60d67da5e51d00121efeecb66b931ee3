@@ -1,0 +1,3369 @@
+
+package com.mideye.administration_ui;
+
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Cursor;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.Point;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
+import java.awt.event.ItemEvent;
+import java.awt.event.ItemListener;
+import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.Observable;
+import java.util.Observer;
+import java.util.Properties;
+import java.util.Vector;
+
+import javax.swing.BorderFactory;
+import javax.swing.ImageIcon;
+import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JPasswordField;
+import javax.swing.JScrollPane;
+import javax.swing.JSpinner;
+import javax.swing.JTabbedPane;
+import javax.swing.JTextField;
+import javax.swing.ListSelectionModel;
+import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
+import javax.swing.UnsupportedLookAndFeelException;
+import javax.swing.border.EtchedBorder;
+import javax.swing.border.TitledBorder;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
+import javax.swing.event.ListSelectionEvent;
+import javax.swing.event.ListSelectionListener;
+
+import org.apache.log4j.xml.DOMConfigurator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.mideye.administration_ui.dialogs.LDAPRadiusConfigDialog;
+import com.mideye.administration_ui.dialogs.LDAPServerDialog;
+import com.mideye.administration_ui.dialogs.RadiusClientDialog;
+import com.mideye.administration_ui.dialogs.RadiusServerControl;
+import com.mideye.administration_ui.log_config.LogPanelMain;
+import com.mideye.administration_ui.utils.AppException;
+import com.mideye.administration_ui.utils.Connector;
+import com.mideye.administration_ui.utils.IPConstants;
+import com.mideye.administration_ui.utils.JTextFieldLimit;
+import com.mideye.administration_ui.utils.MessageDialog;
+import com.mideye.administration_ui.utils.MessageTitle;
+import com.mideye.administration_ui.utils.NumericFocusLostListener;
+import com.mideye.administration_ui.utils.NumericKeyListener;
+import com.mideye.administration_ui.utils.Pair;
+import com.mideye.db.dbapi.DBException;
+import com.mideye.db.dbapi.DbGeneralSettings;
+import com.mideye.db.dbapi.GeneralSettingsAPI;
+import com.mideye.install.DatabaseUpdateExecution;
+import com.mideye.logmanager.LogException;
+import com.mideye.logmanager.LogProperties;
+import com.mideye.server_core.algorithm_hdl.GenerateKey;
+import com.mideye.server_core.algorithm_hdl.PassCrypto;
+import com.mideye.server_core.auth_server.PasswordEncryption;
+import com.mideye.user_containers.ldap.LDAPServer;
+import com.mideye.utilities.DbUserProperties;
+import com.mideye.utilities.GException;
+import com.mideye.utilities.GipsServerProperties;
+import com.mideye.utilities.Platform;
+import com.mideye.utilities.UncaughtExceptionHandler;
+
+public class ConfigTool extends JFrame implements Observer, IConfigTool
+{
+	private static final Logger logger = LoggerFactory.getLogger(ConfigTool.class);
+	
+	private static final String ROOT_PASSWORD_TOOLTIP = "Password for the web admin ROOT user";
+	private static final String MIDEYE_VERSION_TOOLTIP = "Installed Mideye Server release";
+	private static final String UNLOCK_WEBADMIN_TOOLTIP = "Check/Un-check to lock/unlock web admin ROOT user";
+	private static final String KEEPALIVE_TOOLTIP = "Enable keep-alive messages to Mideye Switch every 10 minutes";
+	private static final String DBDOMAIN_TOOLTIP = "Domain if using domain account for connecting to DB. MS SQL only.";
+	private static final String DBINSTANCE_TOOLTIP = "DB instance in cluster. MS SQL only.";
+	
+	private static final String DEFAULT_OAM_PATH = Platform.getPlatform().getDefaultOamPath();
+	
+	/**
+	 * Simple helper class, if the checkGeneralParameters method fail this
+	 * exception will give us the information so we can present it to the user.
+	 */
+	@SuppressWarnings("serial")
+	private static class GeneralSettingsException extends Exception
+	{
+		public GeneralSettingsException(String message)
+		{
+			super(message);
+		}
+		
+		public GeneralSettingsException(String message, Throwable e)
+		{
+			super(message, e);
+		}
+	}
+	
+	// Minimum one minute
+	public static final int DB_CONN_IDLE_TIMEOUT_MIN = 1;
+	
+	// Maximum one hour
+	private static final int DB_CONN_IDLE_TIMEOUT_MAX = 60;
+	private static final long serialVersionUID = 1L;
+	
+	/**
+	 * @param args
+	 */
+	public static void main(final String[] args)
+	{
+		Thread.setDefaultUncaughtExceptionHandler(new UncaughtExceptionHandler());
+		useNativeLookAndFeel();
+		
+		SwingUtilities.invokeLater(new Runnable()
+		{
+			public void run()
+			{
+				try
+				{
+					UIManager.setLookAndFeel("com.sun.java.swing.plaf.gtk.GTKLookAndFeel");
+				}
+				catch (ClassNotFoundException | InstantiationException
+						| IllegalAccessException
+						| UnsupportedLookAndFeelException e)
+				{
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+				final ConfigTool thisClass = new ConfigTool(args);
+				thisClass.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+				thisClass.setVisible(true);
+			}
+		});
+	}
+	
+	/**
+	 * Helper method for update(). Sets the text in the JTextField to the one
+	 * specified if arg and the JTextField isn't equal.
+	 * 
+	 * @param field
+	 * @param text
+	 * @param arg
+	 */
+	private static void setTextFieldText(final JTextField field, final String text, final Object arg)
+	{
+		if (arg != field)
+		{
+			field.setText(text);
+		}
+	}
+	
+	private final LogPanelMain loggerPanel;
+	
+	//Database related components
+	private DatabaseDomain databaseDomain = null;
+	private JButton dbCloseButton = null;
+	private JButton dbHelpButton = null;
+	private JButton dbSaveButton = null;
+	private JPanel dbButtonPanel = null;
+	private JPanel dbHostPanel = null;
+	private JPanel dbComponentPanel = null;
+	private JPanel dbConnectionPanel = null;
+	private JPanel dbSubPanel = null;
+	private JPanel dbSubPanel2 = null;
+	private JPanel dbUrlPanel = null;
+	private JPanel dbUserPanel = null;
+	private JTextField dbDomainTextField = null;
+	private JTextField dbDriverTextField = null;
+	private JTextField dbServerAddressTextField = null;
+	private JTextField dbInstanceTextField = null;
+	private JTextField dbNameTextField = null;
+	private JTextField dbUserTextField = null;
+	private JTextField dbUrlTextField = null;
+	private JLabel dbDomainLabel = null;
+	private JLabel dbDriverLabel = null;
+	private JLabel dbServerAddressLabel = null;
+	private JLabel dbInstanceLabel = null;
+	private JLabel dbNameLabel = null;
+	private JLabel dbPasswordLabel = null;
+	private JLabel dbPortLabel = null;
+	private JLabel dbTimeoutLabel = null;
+	private JLabel dbTypeLabel = null;
+	private JLabel dbUrlLabel = null;
+	private JLabel dbUserLabel = null;
+	private JSpinner dbPortSpinner = null;
+	private JSpinner dbTimeoutSpinner = null;
+	private JPasswordField dbPasswordPasswordField = null;
+	private JComboBox dbTypeComboBox = null;
+	private String dbPassword = null;
+	private String dbUserName = null;
+	private boolean dbPropertiesLoaded = false;
+	
+	//Switch related components
+	private JLabel generalBkupSwitchConTimeoutLabel = null;
+	private JLabel generalSwitchHostLabel = null;
+	private JLabel generalSwitchPortLabel = null;
+	private JLabel generalBkupSwitchHostLabel = null;
+	private JLabel generalBkupSwitchFallbackLabel = null;
+	private JSpinner generalBkupSwitchConTimeoutSpinner = null;
+	private JSpinner generalSwitchPortSpinner = null;
+	private JSpinner generalBkupSwitchFallbackSpinner = null;
+	private JTextField generalBkupSwitchHostTextField1 = null;
+	private JTextField generalBkupSwitchHostTextField2 = null;
+	private JTextField generalBkupSwitchHostTextField3 = null;
+	private JTextField generalBkupSwitchHostTextField4 = null;
+	private JTextField generalSwitchHostTextField1 = null;
+	private JTextField generalSwitchHostTextField2 = null;
+	private JTextField generalSwitchHostTextField3 = null;
+	private JTextField generalSwitchHostTextField4 = null;
+	private JPanel generalBkupSwitchPanel = null;
+	
+	//Webadmin related components
+	private JSpinner generalWebAdminMaxFailedSpinner = null;
+	private JSpinner generalWebAdminOtpLenSpinner = null;
+	private JSpinner generalWebAdminPortSpinner = null;
+	private JPanel generalWebAdminPanel = null;
+	private JLabel generalWebAdminPwdLabel = null;
+	private JPasswordField generalWebAdminPwdPasswordField = null;
+	private JCheckBox generalWebAdminUnlockCheckBox = null;
+	private JComboBox generalWebAdminOtpTypeComboBox = null;
+	
+	//Proxy related components
+	private JLabel generalProxyHostLabel = null;
+	private JLabel generalProxyPortLabel = null;
+	private JTextField generalProxyHostTextField = null;
+	private JPanel generalProxyPanel = null;
+	private JSpinner generalProxyPortSpinner = null;
+	private JCheckBox generalProxyUseProxyCheckBox = null;
+	
+	//Panel related components
+	private JPanel generalPinPanel = null;
+	private JPanel generalButtonPanel = null;
+	private JPanel generalComponentPanel = null;
+	private JPanel generalMiscPanel = null;
+	private JPanel generalPanel = null;
+	private JPanel generalKeepAlivePanel = null;
+	private JPanel generalSubPanel = null;
+	private JPanel generalSubPanel2 = null;
+	private JPanel generalUserPanel = null;
+	private ListPanel ldapRadiusPanel = null;
+	private ListPanel ldapServerPanel = null;
+	private ListPanel radiusClientPanel = null;
+	private ListPanel radiusServersPanel = null;
+	
+	//Misc. GUI components
+	private JButton generalCloseButton = null;
+	private JButton generalHelpButton = null;
+	private JButton generalSaveButton = null;
+	private JLabel mideyeVersionLabel = null;
+	private JLabel generalPwdEncryptionLabel = null;
+	private JPanel jContentPane = null;
+	private JTabbedPane jTabbedPane = null;
+	private JScrollPane generalScrollPane = null;
+	private JComboBox generalPwdEncryptionComboBox = null;
+	private JCheckBox generalKeepAliveCheckBox = null;
+	private JSpinner generalUserOtpValiditySpinner = null;
+	private JList generalList = null;
+
+	private GeneralSettingsAPI oldGeneralSettings = null;
+	private boolean needToRestart = false;
+	private boolean unsavedChangesMade = false;
+	private boolean isConfigTabsEnabled = true;
+	
+	private MessageDialog messageDialog = new MessageDialog(this);
+	
+	/**
+	 * This is the default constructor
+	 */
+	public ConfigTool(final String[] args)
+	{
+		super();
+		try
+		{
+			LogProperties logProperties = new LogProperties();
+			DOMConfigurator.configureAndWatch(logProperties.configToolLogConfig());
+		}
+		catch (LogException ignore)
+		{
+			messageDialog.showErrorMessage(MessageTitle.INIT_ERROR, "Could not initialize logging for ConfigTool", ignore);
+		}
+		
+		for (final String arg : args)
+		{
+			switch (arg.charAt(0))
+			{
+				case 'u':
+				case 'U':
+					dbUserName = arg.substring(1);
+					break;
+				
+				case 'p':
+				case 'P':
+					dbPassword = arg.substring(1);
+					break;
+			}
+		}
+		
+		this.loggerPanel = new LogPanelMain(this);
+		
+		initialize();
+	}
+	
+	/**
+	 * Simple class to execute external processes. It's test method will return
+	 * any problems encountered in an Exception.
+	 */
+	private static abstract class RestartMideyeRuntime implements Connector.Tester<Exception>
+	{
+		// List of commands, first string is the error message if the command fails,
+		// the second string is the actual command. Yes, it's a bit backwards...
+		protected final List<Pair<String, String>> commands = new ArrayList<Pair<String,String>>();
+		
+		public void put(String errMsg, String cmd)
+		{
+			commands.add(new Pair<String, String>(errMsg, cmd, false));
+		}
+	}
+	
+	private static class StopMideyeServices extends RestartMideyeRuntime
+	{
+		public Exception test()
+		{
+			try
+			{
+				for (Pair<String, String> cmd : commands)
+				{
+					Process p = Runtime.getRuntime().exec(cmd.second());
+					p.waitFor();
+				}
+				return null;
+			}
+			catch (IOException ex)
+			{
+				return ex;
+			}
+			catch (InterruptedException ex)
+			{
+				return ex;
+			}
+		}
+	}
+	
+	private static class StartMideyeServices extends RestartMideyeRuntime
+	{
+		public Exception test()
+		{
+			try
+			{
+				for (Pair<String, String> cmd : commands)
+				{
+					Process p = Runtime.getRuntime().exec(cmd.second());
+					if (p.waitFor() != 0)
+					{
+						// We can get away with just the base class Exception since we don't
+						// really do anything with the extra stuff subclasses give us.
+						return new Exception(cmd.first());
+					}
+				}
+				return null;
+			}
+			catch (IOException ex)
+			{
+				return ex;
+			}
+			catch (InterruptedException ex)
+			{
+				return ex;
+			}
+		}
+	}
+	
+	/**
+	 * Closes the ConfigTool and does some cleanup
+	 */
+	public final void closeConfigTool()
+	{
+		if (!dbPropertiesLoaded)
+		{
+			if (this.haveUnsavedChanges())
+			{
+				final int answer = JOptionPane.showConfirmDialog(this, "There is no database selected. Changes cannot be saved.\n"
+						+ "Do you really want to exit?", "Confirm", JOptionPane.YES_NO_OPTION);
+				
+				if (answer == JOptionPane.NO_OPTION)
+				{
+					return;
+				}
+				else if (answer == JOptionPane.YES_OPTION)
+				{
+					HelpDialogHelper.closeHelp();
+					System.exit(0);
+				}
+			}
+		}
+		
+		boolean loggerChanges = loggerPanel.haveUnsavedChanges();
+		if (haveUnsavedChanges() || loggerChanges)
+		{
+			final int answer = JOptionPane.showConfirmDialog(this, "There are currently unsaved changes.\n" +
+					"Do you want to save?", "Confirm",
+					JOptionPane.YES_NO_CANCEL_OPTION);
+			
+			switch (answer)
+			{
+				case JOptionPane.YES_OPTION:
+				{
+					if (!saveConfiguration())
+					{
+						return;
+					}
+					
+					break;
+				}
+				case JOptionPane.NO_OPTION:
+				{
+					try
+					{
+						DBConnection.getInstance().rollback();
+						break;
+					}
+					catch (final AppException ex)
+					{
+						messageDialog.showErrorMessage(MessageTitle.DATABASE_ERROR, ex);
+						return;
+					}
+				}
+				case JOptionPane.CANCEL_OPTION:
+				{
+					return;
+				}
+			}
+		}
+		
+		if (needToRestart)
+		{
+			final String osName = System.getProperty("os.name");
+			if (!osName.startsWith("Windows"))
+			{
+				messageDialog.showInfoMessage(MessageTitle.SERVICE_INFO, "You must restart the Mideye services before the changes can take place.");
+			}
+			else
+			{
+				if (JOptionPane.showConfirmDialog(this,
+						"You must restart the Mideye services before the changes can take place.\n"
+						+ "Do you want to restart services now?", "Confirm", JOptionPane.YES_NO_OPTION) == JOptionPane.NO_OPTION)
+				{
+					messageDialog.showInfoMessage(MessageTitle.SERVICE_INFO, "You must restart the Mideye services before the changes can take place.");
+				}
+				else
+				{
+					Exception ex = Connector.canConnect(new StopMideyeServices()
+							{{
+								put("Could not stop Tomcat service", "net stop \"Tomcat5\"");
+								put("Could not stop Mideye Radius service", "net stop \"Mideye-Radius\"");
+								put("Could not stop Mideye Administration service", "net stop \"Mideye-Administration\"");
+								put("Could not stop Mideye Alarm Manager service", "net stop \"Mideye-AlarmManager\"");
+							}},
+							this, "Stopping services");
+					if (ex != null)
+					{
+						messageDialog.showErrorMessage(MessageTitle.SERVICE_ERROR, ex);
+					}
+					else
+					{
+						ex = Connector.canConnect(new StartMideyeServices()
+								{{
+									put("Could not start Mideye Alarm Manager service", "net start \"Mideye-AlarmManager\"");
+									put("Could not start Mideye Administration service", "net start \"Mideye-Administration\"");
+									put("Could not start Mideye Radius service", "net start \"Mideye-Radius\"");
+									put("Could not start Tomcat service", "net start \"Tomcat5\"");
+								}},
+								this, "Starting services");
+						if (ex != null)
+						{
+							messageDialog.showErrorMessage(MessageTitle.SERVICE_ERROR, ex);
+						}
+					}
+				}
+			}
+		}
+		
+		HelpDialogHelper.closeHelp();
+		System.exit(0);
+	}
+	
+	/**
+	 * This method initializes dbDomainTextField
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	public JTextField getDbDomainTextField()
+	{
+		if (dbDomainTextField == null)
+		{
+			dbDomainTextField = new JTextField();
+			dbDomainTextField.setBounds(128, 80, 266, 20);
+			dbDomainTextField.setToolTipText(DBDOMAIN_TOOLTIP);
+		}
+		return dbDomainTextField;
+	}
+	
+	/**
+	 * This method initializes dbDriverTextField
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	public JTextField getDbDriverTextField()
+	{
+		if (dbDriverTextField == null)
+		{
+			dbDriverTextField = new JTextField();
+			dbDriverTextField.setText("");
+			dbDriverTextField.setBounds(64, 8, 328, 20);
+			dbDriverTextField.setEnabled(false);
+			dbDriverTextField.setToolTipText("JDBC driver");
+			dbDriverTextField.setEditable(true);
+		}
+		return dbDriverTextField;
+	}
+	
+	/**
+	 * This method initializes dbHostNameTextField
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	public JTextField getDbServerAddressTextField()
+	{
+		if (dbServerAddressTextField == null)
+		{
+			dbServerAddressTextField = new JTextField();
+			dbServerAddressTextField.setEditable(true);
+			dbServerAddressTextField.setText("localhost");
+			dbServerAddressTextField.setEnabled(false);
+			dbServerAddressTextField.setToolTipText("Database server address");
+			dbServerAddressTextField.setBounds(168, 8, 226, 20);
+			
+			dbServerAddressTextField.addFocusListener(new FocusAdapter()
+			{
+				@Override
+				public void focusLost(FocusEvent arg0) 
+				{
+					databaseDomain.setAddress(getDbServerAddressTextField().getText());
+				}
+			});
+		}
+		return dbServerAddressTextField;
+	}
+	
+	public JLabel getDbServerAddressLabel()
+	{
+		if (dbServerAddressLabel == null)
+		{
+			dbServerAddressLabel = new JLabel();
+			dbServerAddressLabel.setText("Database address:");
+			dbServerAddressLabel.setBounds(8, 8, 152, 21);
+		}
+		return dbServerAddressLabel;
+	}
+	
+	public JLabel getDbPortLabel()
+	{
+		if (dbPortLabel == null)
+		{
+			dbPortLabel = new JLabel();
+			dbPortLabel.setEnabled(true);
+			dbPortLabel.setBounds(8, 34, 232, 16);
+			dbPortLabel.setToolTipText("Database port");
+			dbPortLabel.setText("TCP port:");
+		}
+		return dbPortLabel;
+	}
+	
+	/**
+	 * This method initializes dbDomainTextField
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	public JTextField getDbInstanceTextField()
+	{
+		if (dbInstanceTextField == null)
+		{
+			dbInstanceTextField = new JTextField();
+			dbInstanceTextField.setBounds(128, 104, 266, 20);
+			dbInstanceTextField.setToolTipText(DBINSTANCE_TOOLTIP);
+		}
+		
+		
+		return dbInstanceTextField;
+	}
+	
+	public boolean instanceTrigger(Database database)
+	{
+		boolean triggered = false;
+		if ((database == Database.SQL_SERVER) && (getDbInstanceTextField().getText().length() > 0))
+		{
+			getDbPortLabel().setText("UDP port:");
+			getDbPortSpinner().setValue(1434);
+			getDbPortSpinner().setEnabled(false);
+			triggered = true;
+		}
+		else
+		{
+			if (getDbPortLabel().getText().equals("UDP port:")) //Extra if statement to prevent "flickering"
+			{
+				getDbPortLabel().setText("TCP port:");
+				getDbPortSpinner().setValue(database.getPort());
+			}
+		}
+		
+		if (database != Database.OTHER)
+		{
+			return triggered;
+		}
+		return true;
+	}
+	
+	/**
+	 * This method initializes dbNameTextField
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	public JTextField getDbNameTextField()
+	{
+		if (dbNameTextField == null)
+		{
+			dbNameTextField = new JTextField();
+			dbNameTextField.setBounds(128, 56, 266, 20);
+			dbNameTextField.setToolTipText("Name of the database created for Mideye");
+		}
+		return dbNameTextField;
+	}
+	
+	/**
+	 * This method initializes dbPasswordPasswordField
+	 * 
+	 * @return javax.swing.JPasswordField
+	 */
+	public JPasswordField getDbPasswordPasswordField()
+	{
+		if (dbPasswordPasswordField == null)
+		{
+			dbPasswordPasswordField = new JPasswordField();
+			dbPasswordPasswordField.setToolTipText("Database user password");
+			
+			if (dbPassword == null)
+			{
+				dbPasswordPasswordField.setEditable(true);
+			}
+			else
+			{
+				dbPasswordPasswordField.setText(dbPassword);
+				dbPasswordPasswordField.setEnabled(false);
+			}
+			
+			dbPasswordPasswordField.setBounds(128, 32, 266, 20);
+		}
+		return dbPasswordPasswordField;
+	}
+	
+	/**
+	 * This method initializes dbPortTextField
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	public JSpinner getDbPortSpinner()
+	{
+		if (dbPortSpinner == null)
+		{
+			final SpinnerNumberModel model = new SpinnerNumberModel();
+			model.setMaximum(IPConstants.PORT_MAX);
+			model.setMinimum(IPConstants.PORT_MIN);
+			
+			dbPortSpinner = new JSpinner();
+			dbPortSpinner.setBounds(321, 32, 73, 20);
+			dbPortSpinner.setModel(model);
+			dbPortSpinner.addChangeListener(new ChangeListener()
+			{
+				public void stateChanged(final ChangeEvent event)
+				{
+					final SpinnerNumberModel model = (SpinnerNumberModel)dbPortSpinner.getModel();
+					databaseDomain.setPort((Integer)model.getValue());
+				}
+			});
+		}
+		return dbPortSpinner;
+	}
+	
+	/**
+	 * This method initializes dbTimeoutTextField
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	public JSpinner getDbTimeoutSpinner()
+	{
+		if (dbTimeoutSpinner == null)
+		{
+			final SpinnerNumberModel model = new SpinnerNumberModel();
+			model.setMinimum(DB_CONN_IDLE_TIMEOUT_MIN);
+			model.setMaximum(DB_CONN_IDLE_TIMEOUT_MAX);
+			
+			dbTimeoutSpinner = new JSpinner();
+			dbTimeoutSpinner.setModel(model);
+			dbTimeoutSpinner.setBounds(321, 56, 73, 20);
+			dbTimeoutSpinner.setValue(10);
+			dbTimeoutSpinner.setToolTipText("Time after which idle database connections are returned to the connection pool");
+			dbTimeoutSpinner.addChangeListener(new ChangeListener()
+			{
+				public void stateChanged(final ChangeEvent event)
+				{
+					final SpinnerNumberModel model = (SpinnerNumberModel)dbTimeoutSpinner.getModel();
+					databaseDomain.setConnectionIdleTimeout((Integer)model.getValue());
+				}
+			});
+		}
+		return dbTimeoutSpinner;
+	}
+	
+	/**
+	 * This method initializes dbUrlTextField
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	public JTextField getDbUrlTextField()
+	{
+		if (dbUrlTextField == null)
+		{
+			dbUrlTextField = new JTextField();
+			dbUrlTextField.setBounds(64, 32, 328, 20);
+			dbUrlTextField.setEnabled(false);
+			dbUrlTextField.setToolTipText("JDBC URL");
+			dbUrlTextField.setEditable(true);
+		}
+		return dbUrlTextField;
+	}
+	
+	/**
+	 * This method initializes dbUserTextField
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	public JTextField getDbUserTextField()
+	{
+		if (dbUserTextField == null)
+		{
+			dbUserTextField = new JTextField();
+			dbUserTextField.setToolTipText("Database user account");
+			
+			if (dbUserName == null)
+			{
+				dbUserTextField.setEditable(true);
+			}
+			else
+			{
+				dbUserTextField.setText(dbUserName);
+				dbUserTextField.setEnabled(false);
+			}
+			
+			dbUserTextField.setBounds(128, 8, 266, 20);
+		}
+		return dbUserTextField;
+	}
+	
+	/**
+	 * Fill LDAP RADIUS Translation with LDAP Attributes that we can modify.
+	 */
+	public void loadLdapRadiusListFromDatabase()
+	{
+		try
+		{
+			final Vector<String> profiles = DBConnection.getInstance().getLdapRadiusTranslationProfiles();
+			getLdapRadiusPanel().setListData(profiles);
+		}
+		catch (final AppException ex)
+		{
+			messageDialog.showErrorMessage(MessageTitle.DATABASE_ERROR, ex);
+		}
+	}
+	
+	/**
+	 * Load all availible LDAP Servers in the database and add them to the list
+	 * so user can manipulate them.
+	 */
+	public void loadLdapServersFromDatabase()
+	{
+		try
+		{
+			final Vector<String> servers = DBConnection.getInstance().getLDAPNames();
+			getLdapServerPanel().setListData(servers);
+		}
+		catch (final AppException ex)
+		{
+			messageDialog.showErrorMessage(MessageTitle.DATABASE_ERROR, "Error retrieving LDAP Servers from database: ", ex);
+		}
+	}
+	
+	/**
+	 * Load all availible RADIUS Clients in the database and add them to the
+	 * list so user can manipulate them.
+	 */
+	public void loadRadiusClientsFromDatabase()
+	{
+		try
+		{
+			final Vector<String> clients = DBConnection.getInstance().getRadiusClientIds();
+			getRadiusClientPanel().setListData(clients);
+		}
+		catch (final AppException ex)
+		{
+			messageDialog.showErrorMessage(MessageTitle.DATABASE_ERROR, "Error retrieving RADIUS Clients from database: ", ex);
+		}
+	}
+	
+	/**
+	 * Load all availible RADIUS Servers in the database and add them to the
+	 * list so user can manipulate them.
+	 */
+	public void loadRadiusServersFromDatabase()
+	{
+		try
+		{
+			final Vector<Pair<String, Integer>> servers = DBConnection.getInstance().getRadiusServersNameAndId();
+			getRadiusServersPanel().setListData(servers);
+		}
+		catch (final AppException ex)
+		{
+			messageDialog.showErrorMessage(MessageTitle.DATABASE_ERROR, "Error retrieving RADIUS Servers from database: ", ex);
+		}
+	}
+	
+	/**
+	 * Call this if a change in the configuration is made that need the services
+	 * to be restarted.
+	 */
+	public void needToSave()
+	{
+		this.unsavedChangesMade = true;
+	}
+	
+	/**
+	 * 
+	 */
+	public void openLdapDialog()
+	{
+		final String selected = (String)getLdapServerPanel().getDataList().getSelectedValue();
+		if (selected != null)
+		{
+			try
+			{
+				final LDAPServer server = DBConnection.getInstance().getLDAPServer(selected);
+				new LDAPServerDialog(this, server);
+				loadLdapServersFromDatabase();
+			}
+			catch (final AppException ex)
+			{
+				messageDialog.showErrorMessage(MessageTitle.DATABASE_ERROR, "Could not find LDAP Server in database: ", ex);
+			}
+		}
+	}
+	
+	/**
+	 * 
+	 */
+	public void openLdapRadiusConfigDialog()
+	{
+		final String selected = (String) getLdapRadiusPanel().getDataList().getSelectedValue();
+		if (selected != null)
+		{
+			new LDAPRadiusConfigDialog(this, selected);
+			this.loadLdapRadiusListFromDatabase();
+		}
+	}
+	
+	/**
+	 * 
+	 */
+	public void openRadiusClientDialog()
+	{
+		final String selected = (String) getRadiusClientPanel().getDataList().getSelectedValue();
+		if (selected != null)
+		{
+			new RadiusClientDialog(this, true, selected);
+			loadRadiusClientsFromDatabase();
+		}
+	}
+	
+	/**
+	 * 
+	 */
+	public void openRadiusServerDialog()
+	{
+		final Pair<String, Integer> selected = (Pair<String, Integer>) getRadiusServersPanel().getDataList().getSelectedValue();
+		if (selected != null)
+		{
+			new RadiusServerControl(this, selected);
+			loadRadiusServersFromDatabase();
+		}
+	}
+	
+	/**
+	 * 
+	 */
+	public boolean saveConfiguration()
+	{
+		try
+		{
+			if (!getGeneralWebAdminUnlockCheckBox().isSelected() &&
+				new String(getGeneralWebAdminPwdPasswordField().getPassword()).equals(""))
+			{
+				messageDialog.showInfoMessage(MessageTitle.GENERAL_INFO, "You must specify a password for the Web Admin interface.");
+				
+				return false;
+			}
+			
+			if (haveUnsavedChanges())
+			{
+				GeneralSettingsAPI settings = checkGeneralSettings();
+				DbGeneralSettings dbSettings = new DbGeneralSettings(DBConnection.getInstance().getConnection());
+				dbSettings.saveGeneralParameters(settings, oldGeneralSettings);
+				DBConnection.getInstance().commit();
+				oldGeneralSettings = DbGeneralSettings.getGeneralSettings();
+				//Update the root password field in config tool 
+				getGeneralWebAdminPwdPasswordField().setText(oldGeneralSettings.getRootPassword());
+				unsavedChangesMade = false;
+				needToRestart = true;
+			}
+			
+			if (oldGeneralSettings.isPBKDF2Enabled())
+			{
+				getGeneralPwdEncryptionComboBox().setEnabled(false);
+				getGeneralPwdEncryptionLabel().setEnabled(false);
+			}
+			
+			if (loggerPanel.haveUnsavedChanges())
+			{
+				loggerPanel.save();
+			}
+			
+			return true;
+		}
+		catch (final GeneralSettingsException ex)
+		{
+			messageDialog.showErrorMessage(MessageTitle.GENERAL_ERROR, ex);
+			return false;
+		}
+		catch (final AppException ex)
+		{
+			messageDialog.showErrorMessage(MessageTitle.SAVE_ERROR, "Error saving configuration: ",ex);
+			return false;
+		}
+		catch (final GException ex)
+		{
+			messageDialog.showErrorMessage(MessageTitle.SAVE_ERROR, "Error saving configuration: ", ex);
+			return false;
+		}
+	}
+	
+	/**
+	 * Method inherited from java.util.Observer Gets called when one of the
+	 * Observable's state changes
+	 */
+	public void update(final Observable o, final Object arg)
+	{
+		if (o instanceof DatabaseDomain)
+		{
+			final DatabaseDomain domain = (DatabaseDomain)o;
+			
+			// Enable/disable components
+			dbDomainLabel.setEnabled(domain.getDatabase() == Database.SQL_SERVER);
+			dbInstanceLabel.setEnabled(domain.getDatabase() == Database.SQL_SERVER);
+			getDbDomainTextField().setEnabled(domain.getDatabase() == Database.SQL_SERVER);
+			getDbInstanceTextField().setEnabled(domain.getDatabase() == Database.SQL_SERVER);
+
+			getDbServerAddressTextField().setEnabled(domain.getDatabase() != Database.OTHER);
+			getDbServerAddressLabel().setEnabled(domain.getDatabase() != Database.OTHER);
+			
+			getDbPortLabel().setEnabled(domain.getDatabase() != Database.OTHER);
+			getDbPortSpinner().setEnabled(!instanceTrigger(domain.getDatabase()));
+			
+			dbDriverLabel.setEnabled(domain.getDatabase() == Database.OTHER);
+			dbUrlLabel.setEnabled(domain.getDatabase() == Database.OTHER);
+			getDbDriverTextField().setEnabled(domain.getDatabase() == Database.OTHER);
+			getDbUrlTextField().setEnabled(domain.getDatabase() == Database.OTHER);
+			
+			// Set component data
+			if (domain.getDatabase() != Database.OTHER)
+			{
+				setTextFieldText(getDbServerAddressTextField(), domain.getAddress(), arg);
+			}
+			
+			getDbTypeComboBox().setSelectedItem(domain.getDatabase());
+			getDbPortSpinner().setValue(domain.getPort());
+			getDbTimeoutSpinner().setValue(domain.getConnectionIdleTimeout());
+			
+			setTextFieldText(getDbUserTextField(), domain.getUserName(), arg);
+			setTextFieldText(getDbPasswordPasswordField(), domain.getPassword(), arg);
+			setTextFieldText(getDbNameTextField(), domain.getDbName(), arg);
+			
+			setTextFieldText(getDbDomainTextField(), domain.getDomain(), arg);
+			setTextFieldText(getDbInstanceTextField(), domain.getInstance(), arg);
+			
+			setTextFieldText(getDbDriverTextField(), domain.getDriver(), arg);
+			setTextFieldText(getDbUrlTextField(), domain.getUrl(), arg);
+		}
+	}
+	
+	/**
+	 * Loops through the components in the general tab and checks they are in a
+	 * valid state so that we can save. if a certain component isn't in a valid
+	 * state this method informs the user about it. It does not however check
+	 * the root password.
+	 * 
+	 * @return A valid GeneralSettingsAPI object containing the values of the
+	 *         components
+	 * @throws A
+	 *             GeneralSettingsException with an appropriate error message in
+	 *             its getMessage()
+	 */
+	private GeneralSettingsAPI checkGeneralSettings() throws GeneralSettingsException
+	{
+		final GeneralSettingsAPI result = new GeneralSettingsAPI();
+		
+		// Check switch host and port
+		try
+		{
+			final int ip1 = Integer.parseInt(getGeneralSwitchHostTextField1().getText());
+			final int ip2 = Integer.parseInt(getGeneralSwitchHostTextField2().getText());
+			final int ip3 = Integer.parseInt(getGeneralSwitchHostTextField3().getText());
+			final int ip4 = Integer.parseInt(getGeneralSwitchHostTextField4().getText());
+			
+			if (ip1 < IPConstants.IP_ADDR_PART_MIN || ip1 > IPConstants.IP_ADDR_PART_MAX)
+			{
+				throw new NumberFormatException();
+			}
+			if (ip2 < IPConstants.IP_ADDR_PART_MIN || ip2 > IPConstants.IP_ADDR_PART_MAX)
+			{
+				throw new NumberFormatException();
+			}
+			if (ip3 < IPConstants.IP_ADDR_PART_MIN || ip3 > IPConstants.IP_ADDR_PART_MAX)
+			{
+				throw new NumberFormatException();
+			}
+			if (ip4 < IPConstants.IP_ADDR_PART_MIN || ip4 > IPConstants.IP_ADDR_PART_MAX)
+			{
+				throw new NumberFormatException();
+			}
+			
+			result.setSwitchHost(ip1 + "." + ip2 + "." + ip3 + "." + ip4);
+		}
+		catch (final NumberFormatException ex)
+		{
+			throw new GeneralSettingsException("Switch Host is not a valid IP-Address.", ex);
+		}
+		
+		//Set switch port
+		result.setSwitchPort((Integer)getGeneralSwitchPortSpinner().getValue());
+		
+		// Check backup switch configuration
+		try
+		{
+			final int ip1 = Integer.parseInt(getGeneralBkupSwitchHostTextField1().getText());
+			final int ip2 = Integer.parseInt(getGeneralBkupSwitchHostTextField2().getText());
+			final int ip3 = Integer.parseInt(getGeneralBkupSwitchHostTextField3().getText());
+			final int ip4 = Integer.parseInt(getGeneralBkupSwitchHostTextField4().getText());
+			
+			if (ip1 < IPConstants.IP_ADDR_PART_MIN || ip1 > IPConstants.IP_ADDR_PART_MAX)
+			{
+				throw new NumberFormatException();
+			}
+			if (ip2 < IPConstants.IP_ADDR_PART_MIN || ip2 > IPConstants.IP_ADDR_PART_MAX)
+			{
+				throw new NumberFormatException();
+			}
+			if (ip3 < IPConstants.IP_ADDR_PART_MIN || ip3 > IPConstants.IP_ADDR_PART_MAX)
+			{
+				throw new NumberFormatException();
+			}
+			if (ip4 < IPConstants.IP_ADDR_PART_MIN || ip4 > IPConstants.IP_ADDR_PART_MAX)
+			{
+				throw new NumberFormatException();
+			}
+			
+			result.setBackupHost(ip1 + "." + ip2 + "." + ip3 + "." + ip4);
+		}
+		catch (final NumberFormatException ex)
+		{
+			throw new GeneralSettingsException("Backup Switch Host is not a valid IP-Address.", ex);
+		}
+		
+		// Backup switch settings
+		result.setConnectionTimeout((Integer)getGeneralBkupSwitchConTimeoutSpinner().getValue());
+		result.setFallbackRetry((Integer)getGeneralBkupSwitchFallbackSpinner().getValue());
+		
+		// Proxy settings
+		result.setProxyEnabled(getGeneralProxyUseProxyCheckBox().isSelected());
+		result.setProxyHost(getGeneralProxyHostTextField().getText());
+		result.setProxyPort((Integer)getGeneralProxyPortSpinner().getValue());
+		
+		// And last, web configuration
+		result.setWebAdminPort((Integer)getGeneralWebAdminPortSpinner().getValue());
+		
+		final String rootPwd = new String(getGeneralWebAdminPwdPasswordField().getPassword());
+		result.setRootPassword(rootPwd);
+		result.setRootLocked(getGeneralWebAdminUnlockCheckBox().isSelected());
+		
+		try
+		{
+			final int maxFailed = (Integer)getGeneralWebAdminMaxFailedTextField().getValue();
+			if (maxFailed < 0)
+			{
+				throw new NumberFormatException();
+			}
+			
+			result.setMaxFailedWebAdminAttempts(maxFailed);
+		}
+		catch (final NumberFormatException ex)
+		{
+			throw new GeneralSettingsException("Web Admin Max Failed Attempts not valid.", ex);
+		}
+		
+		// OTP Settings
+		result.setOtpLength((Integer)getGeneralWebAdminOtpLenSpinner().getValue());
+		result.setOtpValidityTime((Integer)getGeneralUserOtpValiditySpinner().getValue());
+		
+		final int selectedOtpType = getGeneralWebAdminOtpTypeComboBox().getSelectedIndex();
+		if (selectedOtpType < 0 || selectedOtpType > 2)
+		{
+			throw new GeneralSettingsException("Selected OTP Type cannot be resolved.");
+		}
+		
+		result.setOtpType(selectedOtpType);
+		result.setPinEncryption((PasswordEncryption)getGeneralPwdEncryptionComboBox().getSelectedItem());
+		result.setPBKDF2Enabled(getGeneralPwdEncryptionComboBox().getSelectedItem().equals(PasswordEncryption.ONE_WAY));
+
+		result.setKeepAliveMessage(getGeneralKeepAliveCheckBox().isSelected());
+		
+		// All components are ready for saving...
+		return result;
+	}
+	
+	/**
+	 * Connects to the database and if everything went alright also set the
+	 * apply buttons to enabled.
+	 * 
+	 * @param driver
+	 * @param url
+	 * @param user
+	 * @param password
+	 */
+	private boolean connectToDbAndSetupApply(final String driver, final String url, final String user, final String password)
+	{
+		resetConfigToolSettings();
+		
+		final Properties dbConnectionProps = new Properties();
+		dbConnectionProps.setProperty("Pwd", password);
+		dbConnectionProps.setProperty("User", user);
+		dbConnectionProps.setProperty("Driver", driver);
+		dbConnectionProps.setProperty("URL", url);
+		
+		final Boolean dbConnResult = setupDbConnection(dbConnectionProps);
+		if (dbConnResult == null || !dbConnResult)
+		{
+			messageDialog.showErrorMessage(MessageTitle.DATABASE_ERROR, "Could not access database. Please confirm your settings.");
+			return false;
+		}
+		
+		if (!isMideyeInstalled())
+		{
+			return false;
+		}
+		
+		DatabaseUpdateExecution mntdue = new DatabaseUpdateExecution(
+				DBConnection.getInstance().getConnection(),
+				Platform.getPlatform().getUpgradeScripts());
+		
+		int versionComparisonResult = mntdue.mideyeVersionComparison();
+		
+		if (versionComparisonResult < 0)
+		{
+			final int answer = JOptionPane.showConfirmDialog(this, "The Mideye database hasn't been updated yet.\n" +
+					"Do you want to run the update scripts?",
+					"Mideye not updated", JOptionPane.YES_NO_OPTION);
+			
+			if (answer == JOptionPane.YES_OPTION)
+			{
+				mntdue.execute();
+			}
+			else
+			{
+				return false;
+			}			
+		}
+		else if (versionComparisonResult > 0)
+		{
+			messageDialog.showErrorMessage(MessageTitle.DATABASE_ERROR, "The Mideye database is newer than the installed server.\n" +
+					"Update your Mideye server software to use the database.");
+		}
+		
+		try
+		{
+			this.loadLdapRadiusListFromDatabase();
+			this.loadLdapServersFromDatabase();
+			this.loadRadiusClientsFromDatabase();
+			this.loadRadiusServersFromDatabase();
+			
+			// set state of general settings components
+			final DbGeneralSettings dbSettings = new DbGeneralSettings(DBConnection.getInstance().getConnection());
+			final GeneralSettingsAPI settings = dbSettings.readGeneralSettings();
+			
+			String[] host = settings.getSwitchHost().split("\\.");
+			getGeneralSwitchHostTextField1().setText(host[0]);
+			getGeneralSwitchHostTextField2().setText(host[1]);
+			getGeneralSwitchHostTextField3().setText(host[2]);
+			getGeneralSwitchHostTextField4().setText(host[3]);
+			getGeneralSwitchPortSpinner().setValue(settings.getSwitchPort());
+			
+			host = settings.getBackupHost().split("\\.");
+			getGeneralBkupSwitchHostTextField1().setText(host[0]);
+			getGeneralBkupSwitchHostTextField2().setText(host[1]);
+			getGeneralBkupSwitchHostTextField3().setText(host[2]);
+			getGeneralBkupSwitchHostTextField4().setText(host[3]);
+			
+			getGeneralBkupSwitchConTimeoutSpinner().setValue(settings.getConnectionTimeout());
+			getGeneralBkupSwitchFallbackSpinner().setValue(settings.getFallbackRetry());
+			
+			getGeneralProxyUseProxyCheckBox().setSelected(settings.isProxyEnabled());
+			getGeneralProxyHostTextField().setText(settings.getProxyHost());
+			getGeneralProxyHostTextField().setEnabled(settings.isProxyEnabled());
+			getGeneralProxyPortSpinner().setValue(settings.getProxyPort());
+			getGeneralProxyPortSpinner().setEnabled(settings.isProxyEnabled());
+			
+			getGeneralUserOtpValiditySpinner().setValue(settings.getOtpValidityTime());
+			getGeneralWebAdminPortSpinner().setValue(settings.getWebAdminPort());
+			getGeneralWebAdminMaxFailedTextField().setValue(settings.getMaxFailedWebAdminAttempts());
+			getGeneralWebAdminOtpLenSpinner().setValue(settings.getOtpLength());
+			getGeneralWebAdminOtpTypeComboBox().setSelectedIndex(settings.getOtpType());
+			getGeneralPwdEncryptionComboBox().setSelectedItem(settings.getPinEncryption());
+			getGeneralKeepAliveCheckBox().setSelected(settings.isKeepAliveMessage());
+			
+			if (settings.isRootPwdOk())
+			{
+				getGeneralWebAdminPwdPasswordField().setText(settings.getRootPassword());
+			}
+			else
+			{
+				messageDialog.showErrorMessage(MessageTitle.DECRYPT_ERROR, "Could not decrypt ROOT password, needs to be reset.");
+			}
+			
+			getGeneralWebAdminUnlockCheckBox().setSelected(settings.isRootLocked());
+			mideyeVersionLabel.setText("Mideye Server " + settings.getMideyeVersion());
+		}
+		catch (final DBException ex)
+		{
+			messageDialog.showErrorMessage(MessageTitle.DATABASE_ERROR, "Error retrieving settings from database, please verify database configuration.");
+			return false;
+		}
+		
+		if(!getGeneralPwdEncryptionComboBox().getSelectedItem().equals(PasswordEncryption.ONE_WAY))
+		{
+			getGeneralPwdEncryptionComboBox().setEnabled(true);
+			getGeneralPwdEncryptionLabel().setEnabled(true);
+			pwdEncryptionLabelManager((PasswordEncryption)getGeneralPwdEncryptionComboBox().getSelectedItem());
+		}
+		
+		enableConfigurationTabs(true);
+		
+		getLdapServerPanel().databaseConnectionMade();
+		getRadiusClientPanel().databaseConnectionMade();
+		getLdapRadiusPanel().databaseConnectionMade();
+		getRadiusServersPanel().databaseConnectionMade();
+		
+		unsavedChangesMade = false;
+		loadOldGeneralSettings();
+		
+		return true;
+	}
+		
+	/**
+	 * This method initializes dbButtonPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getDbButtonPanel()
+	{
+		if (dbButtonPanel == null)
+		{
+			dbButtonPanel = new JPanel();
+			dbButtonPanel.setLayout(new BorderLayout());
+			dbButtonPanel.add(getDbSubPanel(), BorderLayout.EAST);
+			dbButtonPanel.add(getDbSubPanel2(), BorderLayout.WEST);
+		}
+		return dbButtonPanel;
+	}
+	
+	/**
+	 * This method initializes dbCloseButton
+	 * 
+	 * @return javax.swing.JButton
+	 */
+	private JButton getDbCloseButton()
+	{
+		if (dbCloseButton == null)
+		{
+			dbCloseButton = new JButton();
+			dbCloseButton.setText("Close");
+			dbCloseButton.setPreferredSize(new Dimension(75, 23));
+			dbCloseButton.addActionListener(new ActionListener()
+			{
+				public void actionPerformed(final ActionEvent event)
+				{
+					closeConfigTool();
+				}
+			});
+		}
+		return dbCloseButton;
+	}
+	
+	/**
+	 * This method initializes dbComponentPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getDbComponentPanel()
+	{
+		if (dbComponentPanel == null)
+		{
+			dbNameLabel = new JLabel();
+			dbNameLabel.setText("Database name:");
+			dbNameLabel.setBounds(8, 56, 112, 16);
+			dbNameLabel.setToolTipText("Name of the database created for Mideye");
+			
+			dbPasswordLabel = new JLabel();
+			dbPasswordLabel.setEnabled(true);
+			dbPasswordLabel.setBounds(8, 32, 112, 16);
+			dbPasswordLabel.setToolTipText("Database user password");
+			dbPasswordLabel.setText("Password:");
+			
+			dbUserLabel = new JLabel();
+			dbUserLabel.setEnabled(true);
+			dbUserLabel.setBounds(8, 8, 112, 16);
+			dbUserLabel.setToolTipText("Database user account");
+			dbUserLabel.setText("User:");
+			
+			dbUrlLabel = new JLabel();
+			dbUrlLabel.setEnabled(false);
+			dbUrlLabel.setBounds(8, 32, 48, 16);
+			dbUrlLabel.setToolTipText("JDBC URL");
+			dbUrlLabel.setText("URL:");
+			
+			dbDriverLabel = new JLabel();
+			dbDriverLabel.setEnabled(false);
+			dbDriverLabel.setBounds(8, 8, 48, 16);
+			dbDriverLabel.setToolTipText("JDBC driver");
+			dbDriverLabel.setText("Driver:");
+			
+			dbTypeLabel = new JLabel();
+			dbTypeLabel.setBounds(17, 20, 101, 16);
+			dbTypeLabel.setToolTipText("Select MS SQL, MySQL or other");
+			dbTypeLabel.setText("Database Type:");
+			
+			dbTimeoutLabel = new JLabel();
+			dbTimeoutLabel.setToolTipText("Time after which idle database connections are returned to the connection pool");
+			dbTimeoutLabel.setBounds(8, 58, 232, 16);
+			dbTimeoutLabel.setText("Connection idle time (minutes):");
+			
+			dbDomainLabel = new JLabel();
+			dbDomainLabel.setText("Domain:");
+			dbDomainLabel.setBounds(8, 80, 112, 16);
+			dbDomainLabel.setToolTipText(DBDOMAIN_TOOLTIP);
+			
+			dbInstanceLabel = new JLabel();
+			dbInstanceLabel.setText("Instance:");
+			dbInstanceLabel.setBounds(8, 104, 112, 16);
+			dbInstanceLabel.setToolTipText(DBINSTANCE_TOOLTIP);
+			
+			dbComponentPanel = new JPanel();
+			dbComponentPanel.setLayout(null);
+			dbComponentPanel.add(dbTypeLabel);
+			dbComponentPanel.add(getDbTypeComboBox());
+			dbComponentPanel.add(getDbHostPanel());
+			dbComponentPanel.add(getDbUrlPanel());
+			dbComponentPanel.add(getDbUserPanel());
+			
+			DatabaseController.addDatabaseKeyListeners(this, databaseDomain);
+		}
+		return dbComponentPanel;
+	}
+	
+	/**
+	 * This method initializes dbConnectionPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getDbConnectionPanel()
+	{
+		if (dbConnectionPanel == null)
+		{
+			dbConnectionPanel = new JPanel();
+			dbConnectionPanel.setLayout(new BorderLayout());
+			dbConnectionPanel.add(getDbComponentPanel(), BorderLayout.CENTER);
+			dbConnectionPanel.add(getDbButtonPanel(), BorderLayout.SOUTH);
+		}
+		return dbConnectionPanel;
+	}
+	
+	/**
+	 * This method initializes dbHelpButton
+	 * 
+	 * @return javax.swing.JButton
+	 */
+	private JButton getDbHelpButton()
+	{
+		if (dbHelpButton == null)
+		{
+			dbHelpButton = new JButton();
+			dbHelpButton.setText("Help");
+			dbHelpButton.setPreferredSize(new Dimension(75, 23));
+			
+			dbHelpButton.addActionListener(new ActionListener()
+			{
+				public void actionPerformed(final ActionEvent event)
+				{
+					HelpDialogHelper.createHelp(HelpSection.HS_DBCONNECTION);
+				}
+			});
+		}
+		return dbHelpButton;
+	}
+	
+	/**
+	 * This method initializes dbHostPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getDbHostPanel()
+	{
+		if (dbHostPanel == null)
+		{
+			dbHostPanel = new JPanel();
+			dbHostPanel.setLayout(null);
+			dbHostPanel.setBounds(8, 48, 401, 90);
+			dbHostPanel.setBorder(BorderFactory.createEtchedBorder(EtchedBorder.LOWERED));
+			dbHostPanel.add(getDbPortLabel(), null);
+			dbHostPanel.add(getDbPortSpinner(), null);
+			dbHostPanel.add(getDbServerAddressTextField(), null);
+			dbHostPanel.add(getDbServerAddressLabel(), null);
+			dbHostPanel.add(getDbTimeoutSpinner(), null);
+			dbHostPanel.add(dbTimeoutLabel, null);
+		}
+		return dbHostPanel;
+	}
+	
+	/**
+	 * This method initializes dbSubPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getDbSubPanel()
+	{
+		if (dbSubPanel == null)
+		{
+			dbSubPanel = new JPanel();
+			dbSubPanel.setLayout(new FlowLayout());
+			dbSubPanel.add(getDbCloseButton(), null);
+			dbSubPanel.add(getDbHelpButton(), null);
+		}
+		return dbSubPanel;
+	}
+	
+	/**
+	 * This method initializes dbSubPanel2
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getDbSubPanel2()
+	{
+		if (dbSubPanel2 == null)
+		{
+			dbSubPanel2 = new JPanel();
+			dbSubPanel2.setLayout(new FlowLayout());
+			dbSubPanel2.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+			dbSubPanel2.add(getDbSaveButton(), null);
+		}
+		return dbSubPanel2;
+	}
+	
+	/**
+	 * This method initializes dbTestButton
+	 * 
+	 * @return javax.swing.JButton
+	 */
+	private JButton getDbSaveButton()
+	{
+		if (dbSaveButton == null)
+		{
+			dbSaveButton = new JButton();
+			dbSaveButton.setText("Save Connection");
+			
+			dbSaveButton.setPreferredSize(new Dimension(150, 23));
+			final ConfigTool thisClass = this;
+			
+			dbSaveButton.addActionListener(new ActionListener()
+			{
+				public void actionPerformed(final ActionEvent event)
+				{
+					saveDb();
+				}
+				
+				/**
+				 * 
+				 * Check through all database components to see if they are
+				 * valid.
+				 * 
+				 */
+				private boolean checkDatabaseParameters()
+				{
+					// First we check if we have a username and password
+					if (getDbUserTextField().getText().equals(""))
+					{						
+						messageDialog.showInfoMessage(MessageTitle.DATABASE_INFO, "You must specify a database user.");
+						
+						return false;
+					}
+					
+					// Then we check if we have a known database and check its
+					// parameters then
+					if ((Database)getDbTypeComboBox().getSelectedItem() != Database.OTHER)
+					{
+						// Must have a valid database name
+						if (getDbNameTextField().getText().equals(""))
+						{
+							messageDialog.showInfoMessage(MessageTitle.DATABASE_INFO, "You must specify a database name.");
+							
+							return false;
+						}
+						
+						// Now we check to see if we have a valid IP-address or host name
+						String dbHostName = getDbServerAddressTextField().getText();
+						if (!IPConstants.correctAddress(dbHostName))
+						{
+							messageDialog.showInfoMessage(MessageTitle.DATABASE_INFO, "Not a valid database address: \"" + dbHostName + "\"");
+							return false;
+						}
+						
+						// At last we see if the port number is acceptable
+						try
+						{
+							final int port = (Integer) getDbPortSpinner().getValue();
+							if (port < IPConstants.PORT_MIN || port > IPConstants.PORT_MAX)
+							{
+								messageDialog.showInfoMessage(MessageTitle.CONFIG_INFO,
+										"Port number must be between " + IPConstants.PORT_MIN +
+										" and " + IPConstants.PORT_MAX + ".");
+								return false;
+							}
+						}
+						catch (final NumberFormatException ex)
+						{
+							messageDialog.showErrorMessage(MessageTitle.DATABASE_ERROR, "Not a valid host port number.");
+							
+							return false;
+						}
+					}
+					
+					return true;
+				}
+				
+				/**
+				 * @param thisClass
+				 */
+				private void saveDb()
+				{
+					// Check if there's any unsaved changes in the configuration
+					// and, if there is, ask the user if they want to save
+					if (haveUnsavedChanges())
+					{
+						final int answer = JOptionPane.showConfirmDialog(thisClass,
+								"You have unsaved changes.\n" + "If you proceed with saving the database connection these changes will be lost.\n" +
+								"Do you want to save before continuing?",
+								"Confirm", JOptionPane.YES_NO_CANCEL_OPTION);
+						
+						switch (answer)
+						{
+							case JOptionPane.YES_OPTION:
+							{
+								if (!saveConfiguration())
+								{
+									// Saving the configuration failed.
+									// Appropriate error messages should
+									// have been displayed.
+									// Cannot save the database connection
+									// right now so just return.
+									return;
+								}
+								break;
+							}
+							case JOptionPane.NO_OPTION:
+							{
+								unsavedChangesMade = false;
+								break;
+							}
+							case JOptionPane.CANCEL_OPTION:
+							{
+								return;
+							}
+						}
+					}
+					
+					// Test if the database components are in a legal state,
+					// exit if not
+					if (!checkDatabaseParameters())
+					{
+						return;
+					}
+					
+					// Connect to database and load the settings
+					if (connectToDbAndSetupApply(getDbDriverTextField().getText(), 
+							getDbUrlTextField().getText(),
+							getDbUserTextField().getText(),
+							new String(getDbPasswordPasswordField().getPassword())))
+					{
+						if (saveToDbPropertiesFile())
+						{
+							messageDialog.showInfoMessage(MessageTitle.DATABASE_INFO, 
+									"A connection to the database was established.\nParameters saved.");
+							needToRestart = true;
+						}
+					}
+					
+					dbPropertiesLoaded = true;
+				}
+				
+				/**
+				 * Generate a property file from the values inside the database
+				 * components. It then saves these to DBConnection.properties
+				 * and (if it can be found) Oam.properties. If Oam.properties
+				 * cannot be found it will still return true since it's not a
+				 * fatal failure.
+				 * 
+				 * @return boolean True if we can proceed with saving the rest,
+				 *         false if not
+				 */
+				private boolean saveToDbPropertiesFile()
+				{
+					final Properties properties = new Properties();
+					properties.setProperty("Connections", "20");
+					properties.setProperty("OpenConnections", "false");
+					properties.setProperty("Driver", getDbDriverTextField().getText());
+					properties.setProperty("URL", getDbUrlTextField().getText());
+					
+					// convert idle time from seconds to milliseconds
+					int timeOut = (Integer) getDbTimeoutSpinner().getValue();
+					timeOut *= (1000 * 60);
+					properties.setProperty("timeout", Integer.toString(timeOut));
+					
+					// Save to DBConnection.properties
+					try
+					{
+						final String userString = getDbUserTextField().getText();
+						String passString = new String(getDbPasswordPasswordField().getPassword());
+						properties.setProperty("User", userString);
+						
+						GenerateKey.generate();
+						final PassCrypto passCrypto = PassCrypto.getInstance();
+						passString = passCrypto.encryptPass(userString, DbUserProperties.DB_ENCRYPT_KEY_MSISDN.trim(), passString);
+						
+						properties.setProperty("Pwd", passString);
+						properties.setProperty(GipsServerProperties.KEY_FILE, new File(GipsServerProperties.GIPS_KEY_FILE).getCanonicalPath());
+						properties.setProperty(GipsServerProperties.KEY_PASSWD, GipsServerProperties.GIPS_KEY_PASSWORD);
+						
+						final File file = new File(Platform.getPlatform().getDbConnectionProperties());
+						final FileOutputStream out = new FileOutputStream(file);
+						
+						try
+						{
+							properties.store(out, "Database connection Parameters");
+						}
+						finally
+						{
+							out.close();
+						}
+					}
+					catch (final GException ex)
+					{
+						messageDialog.showErrorMessage(MessageTitle.ENCRYPT_ERROR, "Error encrypting password: ", ex);
+						return false;
+					}
+					catch (final IOException ex)
+					{
+						messageDialog.showErrorMessage(MessageTitle.IO_ERROR, "Could not open property file: " , ex);
+						return false;
+					}
+					
+					// Save to Oam.properties
+					try
+					{
+						// TODO: This code requires that Oam.properties is installed along side
+						// the rest of the Mideye server. It can however be an empty file, but
+						// it must exist!
+						File file = new File(DEFAULT_OAM_PATH); 
+						if (!file.exists())
+						{
+							final String oamPath = System.getenv("OAM_PATH");
+							if (oamPath != null)
+							{
+								file = new File(oamPath + "Oam.properties");
+							}
+						}
+						
+						final FileInputStream in = new FileInputStream(file);
+						final Properties oamProperties = new Properties();
+						
+						try
+						{
+							oamProperties.load(in);
+						}
+						finally
+						{
+							in.close();
+						}
+						
+						for (final Enumeration<Object> keys = properties.keys(); keys.hasMoreElements();)
+						{
+							final String key = (String)keys.nextElement();
+							oamProperties.put(key, properties.get(key));
+						}
+						
+						final FileOutputStream out = new FileOutputStream(file);
+						try
+						{
+							oamProperties.store(out, "OAM Properties");
+						}
+						finally
+						{
+							out.close();
+						}
+					}
+					catch (final IOException ex)
+					{
+						messageDialog.showErrorMessage(MessageTitle.IO_ERROR, "Could not open property file: " , ex);
+					}
+					return true;
+				}
+			});
+		}
+		return dbSaveButton;
+	}
+	
+	/**
+	 * This method initializes dbTypeComboBox
+	 * 
+	 * @return javax.swing.JComboBox
+	 */
+	private JComboBox getDbTypeComboBox()
+	{
+		if (dbTypeComboBox == null)
+		{
+			dbTypeComboBox = new JComboBox(Database.values());
+			dbTypeComboBox.setBounds(176, 16, 153, 25);
+			dbTypeComboBox.setToolTipText("Select MS SQL, MySQL or other");
+			
+			dbTypeComboBox.addActionListener(new ActionListener()
+			{
+				private Database currentSelection = null;
+				
+				public void actionPerformed(final ActionEvent event)
+				{
+					final Database database = (Database)dbTypeComboBox.getSelectedItem();
+					if (database != currentSelection)
+					{
+						databaseDomain.setDatabase(database);
+						currentSelection = database;
+					}
+				}
+			});
+			
+			dbTypeComboBox.setSelectedItem(Database.SQL_SERVER);
+		}
+		return dbTypeComboBox;
+	}
+	
+	/**
+	 * This method initializes dbUrlPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getDbUrlPanel()
+	{
+		if (dbUrlPanel == null)
+		{
+			dbUrlPanel = new JPanel();
+			dbUrlPanel.setLayout(null);
+			dbUrlPanel.setBorder(BorderFactory.createEtchedBorder(EtchedBorder.LOWERED));
+			dbUrlPanel.setBounds(8, 310, 401, 65);
+			
+			dbUrlPanel.add(dbDriverLabel);
+			dbUrlPanel.add(getDbDriverTextField());
+			dbUrlPanel.add(dbUrlLabel);
+			dbUrlPanel.add(getDbUrlTextField());
+		}
+		return dbUrlPanel;
+	}
+	
+	/**
+	 * This method initializes dbUserPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getDbUserPanel()
+	{
+		if (dbUserPanel == null)
+		{
+			dbUserPanel = new JPanel();
+			dbUserPanel.setLayout(null);
+			dbUserPanel.setBounds(8, 155, 401, 137);
+			dbUserPanel.setBorder(BorderFactory.createEtchedBorder(EtchedBorder.LOWERED));
+			
+			dbUserPanel.add(dbUserLabel);
+			dbUserPanel.add(getDbUserTextField());
+			dbUserPanel.add(dbPasswordLabel);
+			dbUserPanel.add(getDbPasswordPasswordField());
+			dbUserPanel.add(dbDomainLabel);
+			dbUserPanel.add(getDbDomainTextField());
+			dbUserPanel.add(dbInstanceLabel);
+			dbUserPanel.add(getDbInstanceTextField());
+			dbUserPanel.add(dbNameLabel);
+			dbUserPanel.add(getDbNameTextField());
+		}
+		return dbUserPanel;
+	}
+	
+	/**
+	 * This method initializes generalBkupSwitchConTimeoutTextField
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	private JSpinner getGeneralBkupSwitchConTimeoutSpinner()
+	{
+		if (generalBkupSwitchConTimeoutSpinner == null)
+		{
+			generalBkupSwitchConTimeoutSpinner = new JSpinner(new SpinnerNumberModel(60, 0, 99999, 1));
+			generalBkupSwitchConTimeoutSpinner.setBounds(216, 128, 75, 20);
+			generalBkupSwitchConTimeoutSpinner.setToolTipText("Timeout (in seconds) waiting for a " +
+					"response from primary/secondary switch before attempting to contact alternate switch");
+		}
+		return generalBkupSwitchConTimeoutSpinner;
+	}
+	
+	/**
+	 * This method initializes generalBkupSwitchFallbackTextField
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	private JSpinner getGeneralBkupSwitchFallbackSpinner()
+	{
+		if (generalBkupSwitchFallbackSpinner == null)
+		{
+			generalBkupSwitchFallbackSpinner = new JSpinner(new SpinnerNumberModel(20, 0, 999, 1));
+			generalBkupSwitchFallbackSpinner.setBounds(216, 160, 75, 20);
+			generalBkupSwitchFallbackSpinner.setToolTipText("Number of successful connections to " +
+					"backup switch before attempting to re-connect to primary switch");
+		}
+		return generalBkupSwitchFallbackSpinner;
+	}
+	
+	/**
+	 * This method initializes generalBkupSwitchHostTextField1
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	private JTextField getGeneralBkupSwitchHostTextField1()
+	{
+		if (generalBkupSwitchHostTextField1 == null)
+		{
+			generalBkupSwitchHostTextField1 = new JTextField();
+			generalBkupSwitchHostTextField1.setBounds(136, 64, 35, 20);
+			generalBkupSwitchHostTextField1.setToolTipText("IP-address of the Mideye backup switch");
+			generalBkupSwitchHostTextField1.setHorizontalAlignment(JTextField.TRAILING);
+			
+			final String[] arr = GeneralSettingsAPI.DEFAULT_BACKUP_HOST.split("\\.");
+			if (arr.length >= 1)
+			{
+				generalBkupSwitchHostTextField1.setText(arr[0]);
+			}
+			
+			generalBkupSwitchHostTextField1.addKeyListener(new NumericKeyListener(3, generalBkupSwitchHostTextField1)
+			{
+				public void keyReleased(final KeyEvent event)
+				{
+					if (nextIpField(event))
+					{
+						getGeneralBkupSwitchHostTextField2().requestFocus();
+						event.consume();
+						return;
+					}
+				}
+			});
+			generalBkupSwitchHostTextField1.addFocusListener(new NumericFocusLostListener(0, 255, 79, generalBkupSwitchHostTextField1));
+		}
+		return generalBkupSwitchHostTextField1;
+	}
+	
+	/**
+	 * This method initializes generalBkupSwitchHostTextField2
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	private JTextField getGeneralBkupSwitchHostTextField2()
+	{
+		if (generalBkupSwitchHostTextField2 == null)
+		{
+			generalBkupSwitchHostTextField2 = new JTextField();
+			generalBkupSwitchHostTextField2.setBounds(176, 64, 35, 20);
+			generalBkupSwitchHostTextField2.setToolTipText("IP-address of the Mideye backup switch");
+			generalBkupSwitchHostTextField2.setHorizontalAlignment(JTextField.TRAILING);
+			
+			final String[] arr = GeneralSettingsAPI.DEFAULT_BACKUP_HOST.split("\\.");
+			if (arr.length >= 2)
+			{
+				generalBkupSwitchHostTextField2.setText(arr[1]);
+			}
+			
+			generalBkupSwitchHostTextField2.addKeyListener(new NumericKeyListener(3, generalBkupSwitchHostTextField2)
+			{
+				public void keyReleased(final KeyEvent event)
+				{
+					if (nextIpField(event))
+					{
+						getGeneralBkupSwitchHostTextField3().requestFocus();
+						event.consume();
+						return;
+					}
+				}
+			});
+			generalBkupSwitchHostTextField2.addFocusListener(new NumericFocusLostListener(0, 255, 136, generalBkupSwitchHostTextField2));
+		}
+		return generalBkupSwitchHostTextField2;
+	}
+	
+	/**
+	 * This method initializes generalBkupSwitchHostTextField3
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	private JTextField getGeneralBkupSwitchHostTextField3()
+	{
+		if (generalBkupSwitchHostTextField3 == null)
+		{
+			generalBkupSwitchHostTextField3 = new JTextField();
+			generalBkupSwitchHostTextField3.setBounds(216, 64, 35, 20);
+			generalBkupSwitchHostTextField3.setToolTipText("IP-address of the Mideye backup switch");
+			generalBkupSwitchHostTextField3.setHorizontalAlignment(JTextField.TRAILING);
+			
+			final String[] arr = GeneralSettingsAPI.DEFAULT_BACKUP_HOST.split("\\.");
+			if (arr.length >= 3)
+			{
+				generalBkupSwitchHostTextField3.setText(arr[2]);
+			}
+			
+			generalBkupSwitchHostTextField3.addKeyListener(new NumericKeyListener(3, generalBkupSwitchHostTextField3)
+			{
+				public void keyReleased(final KeyEvent event)
+				{
+					if (nextIpField(event))
+					{
+						getGeneralBkupSwitchHostTextField4().requestFocus();
+						event.consume();
+						return;
+					}
+				}
+			});
+			generalBkupSwitchHostTextField3.addFocusListener(new NumericFocusLostListener(0, 255, 112, generalBkupSwitchHostTextField3));
+		}
+		return generalBkupSwitchHostTextField3;
+	}
+	
+	/**
+	 * This method initializes generalBkupSwitchHostTextField4
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	private JTextField getGeneralBkupSwitchHostTextField4()
+	{
+		if (generalBkupSwitchHostTextField4 == null)
+		{
+			generalBkupSwitchHostTextField4 = new JTextField();
+			generalBkupSwitchHostTextField4.setBounds(256, 64, 35, 20);
+			generalBkupSwitchHostTextField4.setToolTipText("IP-address of the Mideye backup switch");
+			generalBkupSwitchHostTextField4.setHorizontalAlignment(JTextField.TRAILING);
+			
+			final String[] arr = GeneralSettingsAPI.DEFAULT_BACKUP_HOST.split("\\.");
+			if (arr.length >= 4)
+			{
+				generalBkupSwitchHostTextField4.setText(arr[3]);
+			}
+			
+			generalBkupSwitchHostTextField4.addKeyListener(new NumericKeyListener(3, generalBkupSwitchHostTextField4));
+			generalBkupSwitchHostTextField4.addFocusListener(new NumericFocusLostListener(0, 255, 54, generalBkupSwitchHostTextField4));
+		}
+		return generalBkupSwitchHostTextField4;
+	}
+	
+	/**
+	 * This method initializes generalBkupSwitchPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getGeneralBkupSwitchPanel()
+	{
+		if (generalBkupSwitchPanel == null)
+		{
+			generalSwitchPortLabel = new JLabel();
+			generalSwitchPortLabel.setText("Switch port:");
+			generalSwitchPortLabel.setToolTipText("Port assigned by Mideye for each server");
+			generalSwitchPortLabel.setBounds(8, 96, 128, 16);
+			
+			generalSwitchHostLabel = new JLabel();
+			generalSwitchHostLabel.setText("Switch host:");
+			generalSwitchHostLabel.setToolTipText("IP-address of the Mideye main switch");
+			generalSwitchHostLabel.setBounds(8, 32, 128, 16);
+			
+			generalBkupSwitchFallbackLabel = new JLabel();
+			generalBkupSwitchFallbackLabel.setBounds(8, 160, 200, 16);
+			generalBkupSwitchFallbackLabel.setToolTipText("Number of successful connections to backup switch before attempting to re-connect to primary switch");
+			generalBkupSwitchFallbackLabel.setText("Fallback retry:");
+			
+			generalBkupSwitchConTimeoutLabel = new JLabel();
+			generalBkupSwitchConTimeoutLabel.setBounds(8, 128, 200, 16);
+			generalBkupSwitchConTimeoutLabel.setToolTipText("Timeout (in seconds) waiting for a response from primary/secondary switch before attempting to contact alternate switch");
+			generalBkupSwitchConTimeoutLabel.setText("Connection timeout (seconds):");
+			
+			generalBkupSwitchHostLabel = new JLabel();
+			generalBkupSwitchHostLabel.setBounds(8, 64, 128, 16);
+			generalBkupSwitchHostLabel.setToolTipText("IP-address of the Mideye backup switch");
+			generalBkupSwitchHostLabel.setText("Backup switch host:");
+			
+			generalBkupSwitchPanel = new JPanel();
+			generalBkupSwitchPanel.setLayout(null);
+			generalBkupSwitchPanel.setBorder(BorderFactory.createTitledBorder(null, "Switch Parameters", TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION, new Font("Dialog", Font.BOLD, 12), new Color(51, 51, 51)));
+			generalBkupSwitchPanel.setVisible(false);
+			generalBkupSwitchPanel.setSize(new Dimension(300, 188));
+			generalBkupSwitchPanel.setLocation(new Point(106, 32));
+			
+			generalBkupSwitchPanel.add(generalBkupSwitchHostLabel);
+			generalBkupSwitchPanel.add(generalBkupSwitchConTimeoutLabel);
+			generalBkupSwitchPanel.add(generalBkupSwitchFallbackLabel);
+			generalBkupSwitchPanel.add(getGeneralBkupSwitchConTimeoutSpinner());
+			generalBkupSwitchPanel.add(getGeneralBkupSwitchFallbackSpinner());
+			generalBkupSwitchPanel.add(getGeneralBkupSwitchHostTextField1());
+			generalBkupSwitchPanel.add(getGeneralBkupSwitchHostTextField2());
+			generalBkupSwitchPanel.add(getGeneralBkupSwitchHostTextField3());
+			generalBkupSwitchPanel.add(getGeneralBkupSwitchHostTextField4());
+			generalBkupSwitchPanel.add(generalSwitchHostLabel);
+			generalBkupSwitchPanel.add(generalSwitchPortLabel);
+			generalBkupSwitchPanel.add(getGeneralSwitchHostTextField1());
+			generalBkupSwitchPanel.add(getGeneralSwitchHostTextField2());
+			generalBkupSwitchPanel.add(getGeneralSwitchHostTextField3());
+			generalBkupSwitchPanel.add(getGeneralSwitchHostTextField4());
+			generalBkupSwitchPanel.add(getGeneralSwitchPortSpinner());
+		}
+		return generalBkupSwitchPanel;
+	}
+	
+	/**
+	 * This method initializes generalButtonPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getGeneralButtonPanel()
+	{
+		if (generalButtonPanel == null)
+		{
+			generalButtonPanel = new JPanel();
+			generalButtonPanel.setLayout(new BorderLayout());
+			generalButtonPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+			generalButtonPanel.add(getGeneralSubPanel(), BorderLayout.EAST);
+			generalButtonPanel.add(getGeneralSubPanel2(), BorderLayout.WEST);
+		}
+		return generalButtonPanel;
+	}
+	
+	/**
+	 * This method initializes generalCloseButton
+	 * 
+	 * @return javax.swing.JButton
+	 */
+	private JButton getGeneralCloseButton()
+	{
+		if (generalCloseButton == null)
+		{
+			generalCloseButton = new JButton();
+			generalCloseButton.setText("Close");
+			generalCloseButton.setPreferredSize(new Dimension(75, 23));
+			generalCloseButton.setName("generalCloseButton");
+			
+			generalCloseButton.addActionListener(new ActionListener()
+			{
+				public void actionPerformed(final ActionEvent event)
+				{
+					closeConfigTool();
+				}
+			});
+		}
+		return generalCloseButton;
+	}
+	
+	/**
+	 * This method initializes generalComponentPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getGeneralComponentPanel()
+	{
+		if (generalComponentPanel == null)
+		{
+			generalComponentPanel = new JPanel();
+			generalComponentPanel.setLayout(null);
+			generalComponentPanel.add(mideyeVersionLabel);
+			generalComponentPanel.add(getGeneralScrollPane());
+			generalComponentPanel.add(getGeneralBkupSwitchPanel());
+			generalComponentPanel.add(getGeneralWebAdminPanel());
+			generalComponentPanel.add(getGeneralMiscPanel());
+		}
+		return generalComponentPanel;
+	}
+	
+	/**
+	 * This method initializes generalHelpButton
+	 * 
+	 * @return javax.swing.JButton
+	 */
+	private JButton getGeneralHelpButton()
+	{
+		if (generalHelpButton == null)
+		{
+			generalHelpButton = new JButton();
+			generalHelpButton.setText("Help");
+			generalHelpButton.setPreferredSize(new Dimension(75, 23));
+			generalHelpButton.setName("generalHelpButton");
+			
+			generalHelpButton.addActionListener(new ActionListener()
+			{
+				public void actionPerformed(final ActionEvent event)
+				{
+					HelpDialogHelper.createHelp(HelpSection.HS_GENERAL);
+				}
+			});
+		}
+		return generalHelpButton;
+	}
+	
+	/**
+	 * This method initializes generalList
+	 * 
+	 * @return javax.swing.JList
+	 */
+	private JList getGeneralList()
+	{
+		if (generalList == null)
+		{
+			generalList = new JList(new String[]{ "Switch", "Web", "Misc" });
+			generalList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+			
+			generalList.addListSelectionListener(new ListSelectionListener()
+			{
+				public void valueChanged(final ListSelectionEvent event)
+				{
+					switch (generalList.getSelectedIndex())
+					{
+						case 0:
+						{
+							getGeneralBkupSwitchPanel().setVisible(true);
+							getGeneralWebAdminPanel().setVisible(false);
+							getGeneralMiscPanel().setVisible(false);
+							break;
+						}
+						case 1:
+						{
+							getGeneralBkupSwitchPanel().setVisible(false);
+							getGeneralWebAdminPanel().setVisible(true);
+							getGeneralMiscPanel().setVisible(false);
+							break;
+						}
+						case 2:
+						{
+							getGeneralBkupSwitchPanel().setVisible(false);
+							getGeneralWebAdminPanel().setVisible(false);
+							getGeneralMiscPanel().setVisible(true);
+							break;
+						}
+					}
+				}
+			});
+			
+			generalList.setSelectedIndex(0);
+		}
+		return generalList;
+	}
+	
+	/**
+	 * This method initializes generalMiscPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getGeneralMiscPanel()
+	{
+		if (generalMiscPanel == null)
+		{
+			generalMiscPanel = new JPanel();
+			generalMiscPanel.setLayout(null);
+			generalMiscPanel.setVisible(false);
+			generalMiscPanel.setSize(new Dimension(300, 319));
+			generalMiscPanel.setLocation(new Point(106, 32));
+			
+			generalMiscPanel.add(getGeneralProxyPanel());
+			generalMiscPanel.add(getGeneralPinPanel());
+			generalMiscPanel.add(getGeneralUserPanel());
+			generalMiscPanel.add(getGeneralKeepAlivePanel());
+		}
+		return generalMiscPanel;
+	}
+	
+	/**
+	 * This method initializes generalPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getGeneralPanel()
+	{
+		if (generalPanel == null)
+		{
+			mideyeVersionLabel = new JLabel();
+			mideyeVersionLabel.setBounds(8, 8, 401, 16);
+			mideyeVersionLabel.setToolTipText(MIDEYE_VERSION_TOOLTIP);
+			
+			generalPanel = new JPanel();
+			generalPanel.setLayout(new BorderLayout());
+			
+			generalPanel.add(getGeneralComponentPanel(), BorderLayout.CENTER);
+			generalPanel.add(getGeneralButtonPanel(), BorderLayout.SOUTH);
+		}
+		return generalPanel;
+	}
+	
+	/**
+	 * This method initializes generalPwdEncryptionComboBox
+	 * 
+	 * @return javax.swing.JCheckBox
+	 */
+	private JComboBox getGeneralPwdEncryptionComboBox()
+	{
+		if (generalPwdEncryptionComboBox == null)
+		{
+			generalPwdEncryptionComboBox = new JComboBox(PasswordEncryption.values());
+			generalPwdEncryptionComboBox.setBounds(8, 24, 128, 24);
+			generalPwdEncryptionComboBox.setToolTipText(
+					"Choose which encryption should be used for user passwords in the internal database");
+			
+			generalPwdEncryptionComboBox.addItemListener(new ItemListener()
+			{
+				public void itemStateChanged(final ItemEvent event)
+				{
+					if ((event.getStateChange() == ItemEvent.SELECTED))
+					{
+						pwdEncryptionLabelManager((PasswordEncryption)getGeneralPwdEncryptionComboBox().getSelectedItem());
+					}
+				}
+			});
+		}
+		return generalPwdEncryptionComboBox;
+	}
+	
+	private JLabel getGeneralPwdEncryptionLabel()
+	{
+		if (generalPwdEncryptionLabel == null)
+		{
+			generalPwdEncryptionLabel = new JLabel();
+			generalPwdEncryptionLabel.setBounds(8, 48, 264, 24);
+		}
+		return generalPwdEncryptionLabel;
+	}
+	
+	/**
+	 * This method initializes generalPinPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getGeneralPinPanel()
+	{
+		if (generalPinPanel == null)
+		{
+			generalPinPanel = new JPanel();
+			generalPinPanel.setLayout(null);
+			generalPinPanel.setBorder(BorderFactory.createTitledBorder(null, "Password Encryption", TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION, new Font("Dialog", Font.BOLD, 12), new Color(51, 51, 51)));
+			generalPinPanel.setSize(new Dimension(300, 72));
+			generalPinPanel.setLocation(new Point(0, 110));
+			generalPinPanel.add(getGeneralPwdEncryptionComboBox(), null);
+			generalPinPanel.add(getGeneralPwdEncryptionLabel(), null);
+		}
+		return generalPinPanel;
+	}
+	
+	/**
+	 * This method initializes generalKeepAliveCheckBox
+	 * 
+	 * @return javax.swing.JCheckBox
+	 */
+	private JCheckBox getGeneralKeepAliveCheckBox()
+	{
+		if (generalKeepAliveCheckBox == null)
+		{
+			generalKeepAliveCheckBox = new JCheckBox();
+			generalKeepAliveCheckBox.setBounds(4, 24, 250, 21);
+			generalKeepAliveCheckBox.setSelected(GeneralSettingsAPI.DEFAULT_KEEP_ALIVE_MESSAGE);
+			generalKeepAliveCheckBox.setToolTipText(KEEPALIVE_TOOLTIP);
+			generalKeepAliveCheckBox.setText("Enable Keep Alive Messages");
+		}
+		return generalKeepAliveCheckBox;
+	}
+	
+	/**
+	 * This method initializes generalKeepAlivePanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getGeneralKeepAlivePanel()
+	{
+		if (generalKeepAlivePanel == null)
+		{
+			generalKeepAlivePanel = new JPanel();
+			generalKeepAlivePanel.setLayout(null);
+			generalKeepAlivePanel.setBorder(BorderFactory.createTitledBorder(null, "Keep Alive Messages", TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION, new Font("Dialog", Font.BOLD, 12), new Color(51, 51, 51)));
+			generalKeepAlivePanel.setSize(new Dimension(300, 57));
+			generalKeepAlivePanel.setLocation(new Point(0, 262));
+			generalKeepAlivePanel.add(getGeneralKeepAliveCheckBox(), null);
+		}
+		return generalKeepAlivePanel;
+	}
+	
+	/**
+	 * This method initializes generalProxyHostTextField1
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	private JTextField getGeneralProxyHostTextField()
+	{
+		if (generalProxyHostTextField == null)
+		{
+			generalProxyHostTextField = new JTextField();
+			generalProxyHostTextField.setToolTipText("Proxy server IP address");
+			generalProxyHostTextField.setSize(new Dimension(153, 20));
+			generalProxyHostTextField.setLocation(new Point(136, 48));
+			generalProxyHostTextField.setDocument(new JTextFieldLimit(50));
+			generalProxyHostTextField.setText(GeneralSettingsAPI.DEFAULT_PROXY_HOST);
+		}
+		return generalProxyHostTextField;
+	}
+	
+	/**
+	 * This method initializes generalProxyPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getGeneralProxyPanel()
+	{
+		if (generalProxyPanel == null)
+		{
+			generalProxyPortLabel = new JLabel();
+			generalProxyPortLabel.setBounds(24, 72, 104, 16);
+			generalProxyPortLabel.setEnabled(false);
+			generalProxyPortLabel.setToolTipText("Port used by the proxy server");
+			generalProxyPortLabel.setText("Proxy port:");
+			
+			generalProxyHostLabel = new JLabel();
+			generalProxyHostLabel.setBounds(24, 48, 104, 16);
+			generalProxyHostLabel.setEnabled(false);
+			generalProxyHostLabel.setToolTipText("Proxy server IP address");
+			generalProxyHostLabel.setText("Proxy host:");
+			
+			generalProxyPanel = new JPanel();
+			generalProxyPanel.setLayout(null);
+			generalProxyPanel.setBorder(BorderFactory.createTitledBorder(null, "Proxy", TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION, new Font("Dialog", Font.BOLD, 12), new Color(51, 51, 51)));
+			generalProxyPanel.setSize(new Dimension(300, 105));
+			generalProxyPanel.setLocation(new Point(0, 0));
+			
+			generalProxyPanel.add(generalProxyHostLabel);
+			generalProxyPanel.add(getGeneralProxyHostTextField());
+			generalProxyPanel.add(generalProxyPortLabel);
+			generalProxyPanel.add(getGeneralProxyPortSpinner());
+			generalProxyPanel.add(getGeneralProxyUseProxyCheckBox());
+		}
+		return generalProxyPanel;
+	}
+	
+	/**
+	 * This method initializes generalProxyPortTextField
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	private JSpinner getGeneralProxyPortSpinner()
+	{
+		if (generalProxyPortSpinner == null)
+		{
+			generalProxyPortSpinner = new JSpinner(new SpinnerNumberModel(80, IPConstants.PORT_MIN, IPConstants.PORT_MAX, 1));
+			generalProxyPortSpinner.setBounds(216, 72, 75, 20);
+			generalProxyPortSpinner.setToolTipText("Port used by the proxy server");
+			generalProxyPortSpinner.setValue(GeneralSettingsAPI.DEFAULT_PROXY_PORT);
+		}
+		return generalProxyPortSpinner;
+	}
+	
+	/**
+	 * This method initializes generalProxyUseProxyCheckBox
+	 * 
+	 * @return javax.swing.JCheckBox
+	 */
+	private JCheckBox getGeneralProxyUseProxyCheckBox()
+	{
+		if (generalProxyUseProxyCheckBox == null)
+		{
+			generalProxyUseProxyCheckBox = new JCheckBox();
+			generalProxyUseProxyCheckBox.setBounds(4, 20, 91, 21);
+			generalProxyUseProxyCheckBox.setToolTipText("Mark if Server-Switch communication passes via a proxy");
+			generalProxyUseProxyCheckBox.setText("Use proxy");
+			generalProxyUseProxyCheckBox.setSelected(!GeneralSettingsAPI.DEFAULT_PROXY_HOST.equals(GeneralSettingsAPI.PROXY_NONE));
+			
+			generalProxyUseProxyCheckBox.addItemListener(new ItemListener()
+			{
+				public void itemStateChanged(final ItemEvent event)
+				{
+					final boolean enabled = generalProxyUseProxyCheckBox.isSelected();
+					
+					generalProxyHostLabel.setEnabled(enabled);
+					getGeneralProxyHostTextField().setEnabled(enabled);
+					generalProxyPortLabel.setEnabled(enabled);
+					getGeneralProxyPortSpinner().setEnabled(enabled);
+				}
+			});
+		}
+		return generalProxyUseProxyCheckBox;
+	}
+	
+	/**
+	 * This method initializes generalSaveButton
+	 * 
+	 * @return javax.swing.JButton
+	 */
+	private JButton getGeneralSaveButton()
+	{
+		if (generalSaveButton == null)
+		{
+			generalSaveButton = new JButton();
+			generalSaveButton.setText("Save");
+			generalSaveButton.setName("generalSaveButton");
+			generalSaveButton.setPreferredSize(new Dimension(75, 23));
+			generalSaveButton.setDefaultCapable(true);
+			
+			generalSaveButton.addActionListener(new ActionListener()
+			{
+				public void actionPerformed(final ActionEvent event)
+				{
+					if (saveConfiguration())
+					{
+						messageDialog.showInfoMessage(MessageTitle.SAVE_INFO, "Configuration saved.");
+					}
+				}
+			});
+		}
+		return generalSaveButton;
+	}
+	
+	/**
+	 * This method initializes generalScrollPane
+	 * 
+	 * @return javax.swing.JScrollPane
+	 */
+	private JScrollPane getGeneralScrollPane()
+	{
+		if (generalScrollPane == null)
+		{
+			generalScrollPane = new JScrollPane();
+			generalScrollPane.setBounds(8, 32, 89, 345);
+			generalScrollPane.setViewportView(getGeneralList());
+		}
+		return generalScrollPane;
+	}
+	
+	/**
+	 * This method initializes generalSubPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getGeneralSubPanel()
+	{
+		if (generalSubPanel == null)
+		{
+			generalSubPanel = new JPanel();
+			generalSubPanel.setLayout(new FlowLayout());
+			generalSubPanel.add(getGeneralSaveButton(), null);
+			generalSubPanel.add(getGeneralCloseButton(), null);
+			generalSubPanel.add(getGeneralHelpButton(), null);
+		}
+		return generalSubPanel;
+	}
+	
+	/**
+	 * This method initializes generalSubPanel2
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getGeneralSubPanel2()
+	{
+		if (generalSubPanel2 == null)
+		{
+			generalSubPanel2 = new JPanel();
+			generalSubPanel2.setLayout(new FlowLayout());
+		}
+		return generalSubPanel2;
+	}
+	
+	/**
+	 * This method initializes generalSwitchHostTextField1
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	private JTextField getGeneralSwitchHostTextField1()
+	{
+		if (generalSwitchHostTextField1 == null)
+		{
+			generalSwitchHostTextField1 = new JTextField();
+			generalSwitchHostTextField1.setBounds(136, 32, 35, 20);
+			generalSwitchHostTextField1.setToolTipText("IP-address of the Mideye main switch");
+			generalSwitchHostTextField1.setHorizontalAlignment(JTextField.TRAILING);
+			
+			final String[] arr = GeneralSettingsAPI.DEFAULT_SWITCH_HOST.split("\\.");
+			if (arr.length >= 1)
+			{
+				generalSwitchHostTextField1.setText(arr[0]);
+			}
+			
+			generalSwitchHostTextField1.addKeyListener(new NumericKeyListener(3, generalSwitchHostTextField1)
+			{
+				public void keyReleased(final KeyEvent event)
+				{
+					if (nextIpField(event))
+					{
+						getGeneralSwitchHostTextField2().requestFocus();
+						event.consume();
+						return;
+					}
+				}
+			});
+			generalSwitchHostTextField1.addFocusListener(new NumericFocusLostListener(0, 255, 217, generalSwitchHostTextField1));
+		}
+		return generalSwitchHostTextField1;
+	}
+	
+	/**
+	 * This method initializes generalSwitchHostTextField2
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	private JTextField getGeneralSwitchHostTextField2()
+	{
+		if (generalSwitchHostTextField2 == null)
+		{
+			generalSwitchHostTextField2 = new JTextField();
+			generalSwitchHostTextField2.setBounds(176, 32, 35, 20);
+			generalSwitchHostTextField2.setToolTipText("IP-address of the Mideye main switch");
+			generalSwitchHostTextField2.setHorizontalAlignment(JTextField.TRAILING);
+			
+			final String[] arr = GeneralSettingsAPI.DEFAULT_SWITCH_HOST.split("\\.");
+			if (arr.length >= 2)
+			{
+				generalSwitchHostTextField2.setText(arr[1]);
+			}
+			
+			generalSwitchHostTextField2.addKeyListener(new NumericKeyListener(3, generalSwitchHostTextField2)
+			{
+				public void keyReleased(final KeyEvent event)
+				{
+					if (nextIpField(event))
+					{
+						getGeneralSwitchHostTextField3().requestFocus();
+						event.consume();
+						return;
+					}
+				}
+			});
+			generalSwitchHostTextField2.addFocusListener(new NumericFocusLostListener(0, 255, 151, generalSwitchHostTextField2));
+		}
+		return generalSwitchHostTextField2;
+	}
+	
+	/**
+	 * This method initializes generalSwitchHostTextField3
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	private JTextField getGeneralSwitchHostTextField3()
+	{
+		if (generalSwitchHostTextField3 == null)
+		{
+			generalSwitchHostTextField3 = new JTextField();
+			generalSwitchHostTextField3.setBounds(216, 32, 35, 20);
+			generalSwitchHostTextField3.setToolTipText("IP-address of the Mideye main switch");
+			generalSwitchHostTextField3.setHorizontalAlignment(JTextField.TRAILING);
+			
+			final String[] arr = GeneralSettingsAPI.DEFAULT_SWITCH_HOST.split("\\.");
+			if (arr.length >= 3)
+			{
+				generalSwitchHostTextField3.setText(arr[2]);
+			}
+			
+			generalSwitchHostTextField3.addKeyListener(new NumericKeyListener(3, generalSwitchHostTextField3)
+			{
+				public void keyReleased(final KeyEvent event)
+				{
+					if (nextIpField(event))
+					{
+						getGeneralSwitchHostTextField4().requestFocus();
+						event.consume();
+						return;
+					}
+				}
+			});
+			generalSwitchHostTextField3.addFocusListener(new NumericFocusLostListener(0, 255, 192, generalSwitchHostTextField3));
+		}
+		return generalSwitchHostTextField3;
+	}
+	
+	/**
+	 * This method initializes generalSwitchHostTextField4
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	private JTextField getGeneralSwitchHostTextField4()
+	{
+		if (generalSwitchHostTextField4 == null)
+		{
+			generalSwitchHostTextField4 = new JTextField();
+			generalSwitchHostTextField4.setBounds(256, 32, 35, 20);
+			generalSwitchHostTextField4.setToolTipText("IP-address of the Mideye main switch");
+			generalSwitchHostTextField4.setHorizontalAlignment(JTextField.TRAILING);
+			
+			final String[] arr = GeneralSettingsAPI.DEFAULT_SWITCH_HOST.split("\\.");
+			if (arr.length >= 4)
+			{
+				generalSwitchHostTextField4.setText(arr[3]);
+			}
+			
+			generalSwitchHostTextField4.addKeyListener(new NumericKeyListener(3, generalSwitchHostTextField4));
+			generalSwitchHostTextField4.addFocusListener(new NumericFocusLostListener(0, 255, 84, generalSwitchHostTextField4));
+		}
+		return generalSwitchHostTextField4;
+	}
+	
+	/**
+	 * This method initializes generalSwitchPortTextField
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	private JSpinner getGeneralSwitchPortSpinner()
+	{
+		if (generalSwitchPortSpinner == null)
+		{
+			generalSwitchPortSpinner = new JSpinner(new SpinnerNumberModel(80,IPConstants.PORT_MIN,IPConstants.PORT_MAX,1));
+			generalSwitchPortSpinner.setBounds(216, 96, 75, 20);
+			generalSwitchPortSpinner.setToolTipText("Port assigned by Mideye for each server");
+			generalSwitchPortSpinner.setValue(GeneralSettingsAPI.DEFAULT_SWITCH_PORT);
+		}
+		return generalSwitchPortSpinner;
+	}
+	
+	/**
+	 * This method initializes generalUserOtpValidityTextField
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	private JSpinner getGeneralUserOtpValiditySpinner()
+	{
+		if (generalUserOtpValiditySpinner == null)
+		{
+			generalUserOtpValiditySpinner = new JSpinner(new SpinnerNumberModel(60, 0, 99999, 1));
+			generalUserOtpValiditySpinner.setBounds(216, 28, 73, 20);
+			generalUserOtpValiditySpinner.setToolTipText("Validity time (in seconds) of generated one-time passwords");
+		}
+		return generalUserOtpValiditySpinner;
+	}
+	
+	/**
+	 * This method initializes generalUserPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getGeneralUserPanel()
+	{
+		if (generalUserPanel == null)
+		{
+			JLabel generalUserOtpValidityLabel = new JLabel();
+			generalUserOtpValidityLabel.setBounds(8, 28, 200, 16);
+			generalUserOtpValidityLabel.setToolTipText("Validity time (in seconds) of generated one-time passwords");
+			generalUserOtpValidityLabel.setText("OTP validity time (seconds):");
+			
+			generalUserPanel = new JPanel();
+			generalUserPanel.setLayout(null);
+			generalUserPanel.setBorder(BorderFactory.createTitledBorder(null, "User Login Parameters", TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION, new Font("Dialog", Font.BOLD, 12), new Color(51, 51, 51)));
+			generalUserPanel.setSize(new Dimension(300, 65));
+			generalUserPanel.setLocation(new Point(0, 190));
+			generalUserPanel.add(generalUserOtpValidityLabel, null);
+			generalUserPanel.add(getGeneralUserOtpValiditySpinner(), null);
+		}
+		return generalUserPanel;
+	}
+	
+	/**
+	 * This method initializes generalWebAdminMaxFailedTextField
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	private JSpinner getGeneralWebAdminMaxFailedTextField()
+	{
+		if (generalWebAdminMaxFailedSpinner == null)
+		{
+			generalWebAdminMaxFailedSpinner = new JSpinner(new SpinnerNumberModel(5, 0, 99999, 1));
+			generalWebAdminMaxFailedSpinner.setBounds(216, 64, 75, 20);
+			generalWebAdminMaxFailedSpinner.setToolTipText("Number of consecutive failed login " +
+					"attempts for a Web Administration user after which the account is locked");
+		}
+		return generalWebAdminMaxFailedSpinner;
+	}
+	
+	/**
+	 * This method initializes generalWebAdminOtpLenTextField
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	private JSpinner getGeneralWebAdminOtpLenSpinner()
+	{
+		if (generalWebAdminOtpLenSpinner == null)
+		{
+			generalWebAdminOtpLenSpinner = new JSpinner(new SpinnerNumberModel(6, 4, 12, 1));
+			generalWebAdminOtpLenSpinner.setBounds(216, 96, 75, 20);
+			generalWebAdminOtpLenSpinner.setToolTipText("Length of the OTP for Web Administration login");
+			generalWebAdminOtpLenSpinner.setValue(GeneralSettingsAPI.DEFAULT_OTP_LENGTH);
+		}
+		return generalWebAdminOtpLenSpinner;
+	}
+	
+	/**
+	 * This method initializes generalWebAdminOtpTypeComboBox
+	 * 
+	 * @return javax.swing.JComboBox
+	 */
+	private JComboBox getGeneralWebAdminOtpTypeComboBox()
+	{
+		if (generalWebAdminOtpTypeComboBox == null)
+		{
+			generalWebAdminOtpTypeComboBox = new JComboBox(new String[]{ "Numeric", "Alphabetic", "AlphaNumeric" });
+			generalWebAdminOtpTypeComboBox.setToolTipText("OTP type for the Web Administration login");
+			generalWebAdminOtpTypeComboBox.setSize(new Dimension(123, 25));
+			generalWebAdminOtpTypeComboBox.setLocation(new Point(168, 128));
+			generalWebAdminOtpTypeComboBox.setSelectedIndex(GeneralSettingsAPI.DEFAULT_OTP_TYPE);
+		}
+		return generalWebAdminOtpTypeComboBox;
+	}
+	
+	/**
+	 * This method initializes generalWebAdminPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getGeneralWebAdminPanel()
+	{
+		if (generalWebAdminPanel == null)
+		{
+			final JLabel generalWebAdminOtpTypeLabel = new JLabel();
+			generalWebAdminOtpTypeLabel.setBounds(8, 128, 152, 16);
+			generalWebAdminOtpTypeLabel.setToolTipText("OTP type for the Web Administration login");
+			generalWebAdminOtpTypeLabel.setText("OTP type:");
+			
+			final JLabel generalWebAdminOtpLenLabel = new JLabel();
+			generalWebAdminOtpLenLabel.setBounds(8, 96, 200, 16);
+			generalWebAdminOtpLenLabel.setToolTipText("Length of the OTP for Web Administration login");
+			generalWebAdminOtpLenLabel.setText("OTP length:");
+			
+			final JLabel generalWebAdminMaxFailedLabel = new JLabel();
+			generalWebAdminMaxFailedLabel.setBounds(8, 64, 200, 16);
+			generalWebAdminMaxFailedLabel.setToolTipText("Number of consecutive failed login attempts for a Web Administration user after which the account is locked");
+			generalWebAdminMaxFailedLabel.setText("Max failed admin attempts:");
+			
+			generalWebAdminPwdLabel = new JLabel();
+			generalWebAdminPwdLabel.setEnabled(false);
+			generalWebAdminPwdLabel.setBounds(32, 196, 124, 16);
+			generalWebAdminPwdLabel.setToolTipText(ROOT_PASSWORD_TOOLTIP);
+			generalWebAdminPwdLabel.setText("ROOT password:");
+			
+			final JLabel generalWebAdminPortLabel = new JLabel();
+			generalWebAdminPortLabel.setBounds(8, 32, 200, 16);
+			generalWebAdminPortLabel.setToolTipText("Port assigned for the communication between Web Administrative interface and the Mideye Server");
+			generalWebAdminPortLabel.setText("Web admin port:");
+			
+			generalWebAdminPanel = new JPanel();
+			generalWebAdminPanel.setLayout(null);
+			generalWebAdminPanel.setBorder(BorderFactory.createTitledBorder(null, "Web Administration Parameters", TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION, new Font("Dialog", Font.BOLD, 12), new Color(51, 51, 51)));
+			generalWebAdminPanel.setVisible(false);
+			generalWebAdminPanel.setSize(new Dimension(300, 232));
+			generalWebAdminPanel.setLocation(new Point(106, 32));
+			
+			generalWebAdminPanel.add(generalWebAdminPortLabel);
+			generalWebAdminPanel.add(generalWebAdminPwdLabel);
+			generalWebAdminPanel.add(generalWebAdminMaxFailedLabel);
+			generalWebAdminPanel.add(generalWebAdminOtpLenLabel);
+			generalWebAdminPanel.add(generalWebAdminOtpTypeLabel);
+			generalWebAdminPanel.add(getGeneralWebAdminPortSpinner());
+			generalWebAdminPanel.add(getGeneralWebAdminPwdPasswordField());
+			generalWebAdminPanel.add(getGeneralWebAdminMaxFailedTextField());
+			generalWebAdminPanel.add(getGeneralWebAdminOtpLenSpinner());
+			generalWebAdminPanel.add(getGeneralWebAdminOtpTypeComboBox());
+			generalWebAdminPanel.add(getGeneralWebAdminUnlockCheckBox());
+		}
+		return generalWebAdminPanel;
+	}
+	
+	/**
+	 * This method initializes generalWebAdminPortTextField
+	 * 
+	 * @return javax.swing.JTextField
+	 */
+	private JSpinner getGeneralWebAdminPortSpinner()
+	{
+		if (generalWebAdminPortSpinner == null)
+		{
+			generalWebAdminPortSpinner = new JSpinner(new SpinnerNumberModel(5410, IPConstants.PORT_MIN, IPConstants.PORT_MAX, 1));
+			generalWebAdminPortSpinner.setBounds(216, 32, 75, 20);
+			generalWebAdminPortSpinner.setToolTipText("Port assigned for the communication between " +
+					"Web Administrative interface and the Mideye Server");
+			generalWebAdminPortSpinner.setValue(GeneralSettingsAPI.DEFAULT_WEB_ADMIN_PORT);
+		}
+		return generalWebAdminPortSpinner;
+	}
+	
+	/**
+	 * This method initializes generalWebAdminPwdPasswordField
+	 * 
+	 * @return javax.swing.JPasswordField
+	 */
+	private JPasswordField getGeneralWebAdminPwdPasswordField()
+	{
+		if (generalWebAdminPwdPasswordField == null)
+		{
+			generalWebAdminPwdPasswordField = new JPasswordField();
+			generalWebAdminPwdPasswordField.setEnabled(false);
+			generalWebAdminPwdPasswordField.setToolTipText(ROOT_PASSWORD_TOOLTIP);
+			generalWebAdminPwdPasswordField.setLocation(new Point(168, 196));
+			generalWebAdminPwdPasswordField.setSize(new Dimension(123, 20));
+			generalWebAdminPwdPasswordField.setText(GeneralSettingsAPI.DEFAULT_WEB_ADMIN_PWD);
+		}
+		return generalWebAdminPwdPasswordField;
+	}
+	
+	/**
+	 * This method initializes generalWebAdminUnlockButton
+	 * 
+	 * @return javax.swing.JButton
+	 */
+	private JCheckBox getGeneralWebAdminUnlockCheckBox()
+	{
+		if (generalWebAdminUnlockCheckBox == null)
+		{
+			generalWebAdminUnlockCheckBox = new JCheckBox();
+			generalWebAdminUnlockCheckBox.setLocation(new Point(4, 164));
+			generalWebAdminUnlockCheckBox.setSize(new Dimension(150, 23));
+			generalWebAdminUnlockCheckBox.setText("Lock ROOT User");
+			generalWebAdminUnlockCheckBox.setToolTipText(UNLOCK_WEBADMIN_TOOLTIP);
+			generalWebAdminUnlockCheckBox.setSelected(true);
+			generalWebAdminUnlockCheckBox.addItemListener(new ItemListener()
+			{
+				public void itemStateChanged(final ItemEvent event)
+				{
+					final boolean selected = generalWebAdminUnlockCheckBox.isSelected();
+					generalWebAdminPwdLabel.setEnabled(!selected);
+					getGeneralWebAdminPwdPasswordField().setEnabled(!selected);
+				}
+			});
+		}
+		return generalWebAdminUnlockCheckBox;
+	}
+	
+	/**
+	 * This method initializes jContentPane
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private JPanel getJContentPane()
+	{
+		if (jContentPane == null)
+		{
+			jContentPane = new JPanel();
+			jContentPane.setLayout(new BorderLayout());
+			jContentPane.add(getJTabbedPane(), BorderLayout.CENTER);
+		}
+		return jContentPane;
+	}
+	
+	/**
+	 * This method initializes jTabbedPane
+	 * 
+	 * @return javax.swing.JTabbedPane
+	 */
+	private JTabbedPane getJTabbedPane()
+	{
+		if (jTabbedPane == null)
+		{
+			jTabbedPane = new JTabbedPane();
+			jTabbedPane.addTab("General", null, getGeneralPanel(), null);
+			jTabbedPane.addTab("Database Connection", null, getDbConnectionPanel(), null);
+			jTabbedPane.addTab("LDAP RADIUS Translation", null, getLdapRadiusPanel(), null);
+			jTabbedPane.addTab("LDAP Servers", null, getLdapServerPanel(), null);
+			jTabbedPane.addTab("RADIUS Clients", null, getRadiusClientPanel(), null);
+			jTabbedPane.addTab("RADIUS Servers", null, getRadiusServersPanel(), null);
+			
+			try
+			{
+				jTabbedPane.addTab("Log Config", loggerPanel.createLogConfigPanel());
+			}
+			catch (AppException ex)
+			{
+				messageDialog.showErrorMessage(MessageTitle.SERVICE_ERROR, ex);
+			}
+			
+			enableConfigurationTabs(dbPropertiesLoaded);
+			
+			jTabbedPane.addChangeListener(new ChangeListener()
+			{
+				public void stateChanged(final ChangeEvent event)
+				{
+					final JPanel selected = (JPanel)jTabbedPane.getSelectedComponent();
+					
+					if (selected == getGeneralPanel())
+					{
+						getRootPane().setDefaultButton(getGeneralSaveButton());
+					}
+					else if (selected == getLdapRadiusPanel())
+					{
+						getLdapRadiusPanel().setDefaultButton();
+					}
+					else if (selected == getLdapServerPanel())
+					{
+						getLdapServerPanel().setDefaultButton();
+					}
+					else if (selected == getRadiusClientPanel())
+					{
+						getRadiusClientPanel().setDefaultButton();
+					}
+					else if (selected == getRadiusServersPanel())
+					{
+						getRadiusServersPanel().setDefaultButton();
+					}
+					else if (selected == getDbConnectionPanel())
+					{
+						getRootPane().setDefaultButton(getDbSaveButton());
+					}
+					else if (selected == loggerPanel.getLogConfigPanel())
+					{
+						loggerPanel.getLogConfigPanel().setDefaultButton();
+					}
+				}
+			});
+		}
+		return jTabbedPane;
+	}
+	
+	/**
+	 * This method initializes ldapRadiusPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private ListPanel getLdapRadiusPanel()
+	{
+		if (ldapRadiusPanel == null)
+		{
+			ldapRadiusPanel = new LdapRadiusPanel(this);
+		}
+		return ldapRadiusPanel;
+	}
+	
+	/**
+	 * This method initializes ldapPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private ListPanel getLdapServerPanel()
+	{
+		if (ldapServerPanel == null)
+		{
+			ldapServerPanel = new LdapServerPanel(this);
+		}
+		return ldapServerPanel;
+	}
+	
+	/**
+	 * This method initializes radiusPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private ListPanel getRadiusClientPanel()
+	{
+		if (radiusClientPanel == null)
+		{
+			radiusClientPanel = new RadiusClientPanel(this);
+		}
+		return radiusClientPanel;
+	}
+	
+	/**
+	 * This method initializes radiusServersPanel
+	 * 
+	 * @return javax.swing.JPanel
+	 */
+	private ListPanel getRadiusServersPanel()
+	{
+		if (radiusServersPanel == null)
+		{
+			radiusServersPanel = new RadiusServerPanel(this);
+		}
+		return radiusServersPanel;
+	}
+	
+	/**
+	 * See if there are any unsaved changes made
+	 * 
+	 * @return True if there are unsaved changes, false if not
+	 */
+	private boolean haveUnsavedChanges()
+	{
+		// check if any other dialog have made changes that need to be saved
+		if (unsavedChangesMade)
+		{
+			return true;
+		}
+		
+		if (oldGeneralSettings == null)
+		{
+			// if we came here something went wrong during the initialization
+			// we should assume the user has solved these problems and therefor
+			// return that there are unsaved changes
+			return true;
+		}
+		
+		// check if the ROOT password
+		if (!new String(getGeneralWebAdminPwdPasswordField().getPassword()).equals(oldGeneralSettings.getRootPassword()))
+		{
+			return true;
+		}
+		
+		// check if the general settings have changed
+		try
+		{
+			final GeneralSettingsAPI settings = checkGeneralSettings();
+			return !settings.equals(oldGeneralSettings);
+			// FIXME: Lock for value changes here!
+		}
+		catch (final GeneralSettingsException ex)
+		{
+			// nothing todo, it's not the responsibility of this
+			// method to show errors to the user
+			return false;
+		}
+	}
+	
+	private void pwdEncryptionLabelManager(PasswordEncryption selected)
+	{
+		if (selected.equals(PasswordEncryption.TWO_WAY))
+		{
+			generalPwdEncryptionLabel.setForeground(new Color(0.0f,0.0f,0.0f));
+			getGeneralPwdEncryptionLabel().setText("A basic encryption that offers some protection.");
+		}
+		else if (selected.equals(PasswordEncryption.ONE_WAY))
+		{
+			generalPwdEncryptionLabel.setForeground(new Color(0.0f,0.0f,0.0f));
+			getGeneralPwdEncryptionLabel().setText("A strong encryption that offers the BEST protection.");
+		}
+		else
+		{
+			generalPwdEncryptionLabel.setForeground(new Color(1.0f,0.0f,0.0f));
+			getGeneralPwdEncryptionLabel().setText("WARNING! No password encryption selected!");
+		}
+	}
+	
+	private void enableConfigurationTabs(boolean enable)
+	{
+		if (enable != isConfigTabsEnabled)
+		{
+			for (int i = 0; i < jTabbedPane.getTabCount(); i++)
+			{
+				if (!jTabbedPane.getTitleAt(i).equalsIgnoreCase("Database Connection"))
+				{
+					jTabbedPane.setEnabledAt(i, enable);
+				}
+			}
+			
+			isConfigTabsEnabled = enable;
+		}
+	}
+	
+	/**
+	 * This method initializes this
+	 * 
+	 * @return void
+	 */
+	private void initialize()
+	{
+		databaseDomain = new DatabaseDomain();
+		databaseDomain.addObserver(this);
+		
+		this.addWindowListener(new WindowAdapter()
+		{
+			public void windowClosing(final WindowEvent event)
+			{
+				closeConfigTool();
+			}
+		});
+		
+		this.setSize(425, 517);
+		this.setContentPane(getJContentPane());
+		this.setTitle("Configuration Tool");
+		this.setResizable(false);
+		
+		boolean error = false;
+		try
+		{
+			databaseDomain.loadSettings();
+			
+			error = !connectToDbAndSetupApply(databaseDomain.getDriver(), databaseDomain.getUrl(), databaseDomain.getUserName(), databaseDomain.getPassword());
+			dbPropertiesLoaded = true;
+		}
+		catch (final AppException ex)
+		{
+			messageDialog.showErrorMessage(MessageTitle.DATABASE_ERROR, ex);
+			error = true;
+		}
+		
+		if (error)
+		{
+			this.getJTabbedPane().setSelectedComponent(getDbConnectionPanel());
+			this.oldGeneralSettings = new GeneralSettingsAPI(); // get the
+																// default
+																// settings
+		}
+		else
+		{
+			getRootPane().setDefaultButton(getGeneralSaveButton());
+			loadOldGeneralSettings();
+		}
+		
+		this.setIconImage(new ImageIcon(getClass().getResource("Mideye_Small.png")).getImage());
+		this.setLocationRelativeTo(null);
+	}
+
+	/**
+	 * Try to user the system look and feel.
+	 * Ignore if we got another look and feel passed in during program start
+	 */
+	private static void useNativeLookAndFeel()
+	{
+		try
+		{
+			if (System.getProperty("swing.defaultlaf") == null)
+			{
+				UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+				logger.info("Look and feel is: \"{}\"", UIManager.getLookAndFeel());
+			}
+		}
+		catch (final ClassNotFoundException ex)
+		{
+			logger.warn("Could not use native look and feel.", ex);
+		}
+		catch (final InstantiationException ex)
+		{
+			logger.warn("Could not use native look and feel.", ex);
+		}
+		catch (final UnsupportedLookAndFeelException ex)
+		{
+			logger.warn("Could not use native look and feel.", ex);
+		}
+		catch (final IllegalAccessException ex)
+		{
+			logger.warn("Could not use native look and feel.", ex);
+		}
+	}
+	
+	/**
+	 * See if Mideye is installed on the database and if it isn't, ask the user
+	 * if they want to install it.
+	 * 
+	 * @return True if mideye is installed (or has just been installed) on the
+	 *         database, false if not
+	 */
+	private boolean isMideyeInstalled()
+	{
+		if (DBConnection.getInstance().isMideyeInstalled())
+		{
+			return true;
+		}
+		
+		final Database db = (Database)getDbTypeComboBox().getSelectedItem();
+		if (db == Database.OTHER)
+		{
+			messageDialog.showErrorMessage(MessageTitle.DATABASE_ERROR, "Mideye could not be intalled on the database.\n" +
+					"In order to install it please refer to the manual.");
+			
+			return false;
+		}
+		else
+		{
+			// Mideye not installed on database, ask user if they want to
+			// install it
+			final int answer = JOptionPane.showConfirmDialog(this, "Mideye could not be found on the database.\n" +
+					"Do you want to run install scripts?",
+					"Mideye not found", JOptionPane.YES_NO_OPTION);
+			
+			if (answer != JOptionPane.YES_OPTION)
+			{
+				return false;
+			}
+			else
+			{
+				final Cursor hourglassCursor = new Cursor(Cursor.WAIT_CURSOR);
+				setCursor(hourglassCursor);
+				
+				final Connector.Tester<Exception> tester = new Connector.Tester<Exception>()
+				{
+					public Exception test()
+					{
+						try
+						{
+							DBConnection.getInstance().installScripts(db.getInstallScriptPath());
+							return null;
+						}
+						catch (final AppException ex)
+						{
+							return ex;
+						}
+					}
+				};
+				
+				final Exception ex = Connector.canConnect(tester, this, "Installing database scripts");
+				
+				// First restore cursor
+				final Cursor normalCursor = new Cursor(Cursor.DEFAULT_CURSOR);
+				setCursor(normalCursor);
+				
+				// Then display eventual errors
+				if (ex == null)
+				{
+					return true;
+				}
+				else
+				{
+					messageDialog.showErrorMessage(MessageTitle.DATABASE_ERROR, "There was an error installing database scripts: ", ex);
+					return false;
+				}
+			}
+		}
+	}
+	
+	/**
+	 * 
+	 */
+	private void loadOldGeneralSettings()
+	{
+		try
+		{
+			oldGeneralSettings = checkGeneralSettings();
+		}
+		catch (final GeneralSettingsException ex)
+		{
+			final String message = "An error occurred while loading the General settings (most likely a database error)";
+			messageDialog.showErrorMessage(MessageTitle.DATABASE_ERROR, message, ex);
+		}
+	}
+	
+	private void resetConfigToolSettings()
+	{
+		if(!getGeneralPwdEncryptionComboBox().getSelectedItem().equals(PasswordEncryption.ONE_WAY))
+		{
+			getGeneralPwdEncryptionComboBox().setEnabled(false);
+			getGeneralPwdEncryptionLabel().setEnabled(false);
+			pwdEncryptionLabelManager((PasswordEncryption)getGeneralPwdEncryptionComboBox().getSelectedItem());
+		}
+		
+		enableConfigurationTabs(false);
+		
+		getLdapServerPanel().resetConfig();
+		getRadiusClientPanel().resetConfig();
+		getLdapRadiusPanel().resetConfig();
+		getRadiusServersPanel().resetConfig();
+	}
+	
+	/**
+	 * Set up a connection to the database with the specified properties file.
+	 * Display a "Please wait..." dialog while connecting.
+	 * 
+	 * @param dbConnectionProps
+	 *            Properties to pass to the database
+	 * @return True the connection could be established, false if not, null if there was a threading error
+	 */
+	private Boolean setupDbConnection(final Properties dbConnectionProps)
+	{
+		final Connector.Tester<Boolean> tester = new Connector.Tester<Boolean>()
+		{
+			public Boolean test()
+			{
+				try
+				{
+					DBConnection.getInstance().setPropertiesAndConnect(dbConnectionProps);
+					return true;
+				}
+				catch (final AppException ex)
+				{
+					logger.warn("Could not set up database connection", ex);
+					return false;
+				}
+			}
+		};
+		
+		return Connector.canConnect(tester, this);
+	}
+	
+	public void showBlockingMessageDialog(String message, String title, String buttonText)
+	{
+		String[] customButton = {buttonText};
+		
+		JOptionPane.showOptionDialog(
+				this, 
+				message, 
+				title, 
+				JOptionPane.OK_OPTION, 
+				JOptionPane.INFORMATION_MESSAGE, 
+				null, 
+				customButton, 
+				customButton[0]);
+	}
+}

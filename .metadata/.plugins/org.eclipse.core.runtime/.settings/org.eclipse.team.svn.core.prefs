@@ -1,0 +1,6 @@
+eclipse.preferences.version=1
+externalMigrateFromAuthorizationDatabase/isMigrated=true
+migrateFromAuthorizationDatabase/isMigrated=true
+repositories/40e25c6b1ef00011192f957b5088e840=40e25c6b1ef00011192f957b5088e840;http\://svn.mideye.com\:8080/svn/mideye_server;http\://svn.mideye.com\:8080/svn/mideye_server;branches;tags;trunk;true;d00ddd53-6352-ec42-9f08-b656908da4b1;http\://svn.mideye.com\:8080/svn/mideye_server;;false;<http\://svn.mideye.com\:8080> Subversion Repositories;;0
+repositories/504a855a20f00011192f957b5088e840=504a855a20f00011192f957b5088e840;http\://svn.mideye.com\:8080/svn/mideye_server/trunk/;http\://svn.mideye.com\:8080/svn/mideye_server/trunk/;branches;tags;trunk;true;d00ddd53-6352-ec42-9f08-b656908da4b1;http\://svn.mideye.com\:8080/svn/mideye_server;;false;<http\://svn.mideye.com\:8080> Subversion Repositories;;0
+repositories/60218f03411c00121efeecb66b931ee3=60218f03411c00121efeecb66b931ee3;https\://svn.apache.org/repos/asf/openejb/trunk/openejb;https\://svn.apache.org/repos/asf/openejb/trunk/openejb;branches;tags;trunk;true;13f79535-47bb-0310-9956-ffa450edef68;https\://svn.apache.org/repos/asf;;false;;;0

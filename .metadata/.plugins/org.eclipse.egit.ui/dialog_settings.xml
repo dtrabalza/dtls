@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<section name="Workbench">
+	<item value="1" key="org.eclipse.egit.ui.internal.clone.GitSelectWizardPageWizardSel"/>
+	<item value="true" key="CommitDialog.showUntracked"/>
+	<list key="CommitDialog.authorValues">
+		<item value="daniele &lt;daniele.trabalza@mideye.com&gt;"/>
+	</list>
+	<list key="CommitDialog.committerValues">
+		<item value="daniele &lt;daniele.trabalza@mideye.com&gt;"/>
+	</list>
+	<list key="RepositorySelectionPage.UsedUris">
+		<item value="ssh://git@git.mideye.com/mideyeserver"/>
+		<item value="ssh://git.mideye.com/mideyeserver"/>
+		<item value="ssh://daniele@git.mideye.com/mideyeserver"/>
+		<item value="ssh://daniele@git.mideyeserver.com/mideyeserver"/>
+		<item value="ssh://git.mideyeserver.com/mideyeserver"/>
+		<item value="ssh://git.mideye.com/git.mideye.com/mideyeserver"/>
+		<item value="ssh://git.mideye.com/git.mideye.com"/>
+		<item value="ssh://daniele@git.mideye.com/git.mideye.com"/>
+	</list>
+	<section name="GitCommitMessageComponent">
+	</section>
+	<section name="org.eclipse.egit.ui.internal.dialogs.MergeTargetSelectionDialog.dialogBounds">
+		<item value="525" key="DIALOG_WIDTH"/>
+		<item value="336" key="DIALOG_Y_ORIGIN"/>
+		<item value="1018" key="DIALOG_X_ORIGIN"/>
+		<item value="557" key="DIALOG_HEIGHT"/>
+		<item value="1|Lucida Grande|11.0|0|COCOA|1|LucidaGrande" key="DIALOG_FONT_NAME"/>
+	</section>
+	<section name="org.eclipse.egit.ui.internal.pull.PullResultDialog.dialogBounds">
+		<item value="581" key="DIALOG_Y_ORIGIN"/>
+		<item value="1125" key="DIALOG_X_ORIGIN"/>
+	</section>
+	<section name="org.eclipse.egit.ui.internal.merge.MergeResultDialog.dialogBounds">
+		<item value="897" key="DIALOG_WIDTH"/>
+		<item value="581" key="DIALOG_Y_ORIGIN"/>
+		<item value="832" key="DIALOG_X_ORIGIN"/>
+		<item value="190" key="DIALOG_HEIGHT"/>
+		<item value="1|Lucida Grande|11.0|0|COCOA|1|LucidaGrande" key="DIALOG_FONT_NAME"/>
+	</section>
+	<section name="org.eclipse.egit.ui.internal.push.PushResultDialog.dialogBounds">
+		<item value="650" key="DIALOG_WIDTH"/>
+		<item value="251" key="DIALOG_Y_ORIGIN"/>
+		<item value="543" key="DIALOG_X_ORIGIN"/>
+		<item value="440" key="DIALOG_HEIGHT"/>
+		<item value="1|Lucida Grande|11.0|0|COCOA|1|LucidaGrande" key="DIALOG_FONT_NAME"/>
+	</section>
+	<section name="org.eclipse.egit.ui.internal.dialogs.CheckoutDialog.dialogBounds">
+		<item value="571" key="DIALOG_WIDTH"/>
+		<item value="262" key="DIALOG_Y_ORIGIN"/>
+		<item value="670" key="DIALOG_X_ORIGIN"/>
+		<item value="462" key="DIALOG_HEIGHT"/>
+		<item value="1|Lucida Grande|11.0|0|COCOA|1|LucidaGrande" key="DIALOG_FONT_NAME"/>
+	</section>
+</section>

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<session version="1.0">
+<refactoring comment="Copy element &apos;WebAdminLauncher.java&apos; to &apos;mideye_server/src/com.mideye.services.oam_hdl&apos;&#x0A;- Original project: &apos;TestEmbedded&apos;&#x0A;- Destination element: &apos;mideye_server/src/com.mideye.services.oam_hdl&apos;&#x0A;- Original element: &apos;WebAdminLauncher.java&apos;" description="Copy compilation unit" destination="=mideye_server/src&lt;com.mideye.services.oam_hdl" element1="/src&lt;{WebAdminLauncher.java" files="0" flags="589830" folders="0" id="org.eclipse.jdt.ui.copy" policy="org.eclipse.jdt.ui.copyResources" stamp="1347977585604" units="1" version="1.0"/>
+</session>

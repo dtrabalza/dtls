@@ -1,0 +1,428 @@
+
+package com.mideye.administration_ui;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Observable;
+import java.util.Properties;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.mideye.administration_ui.utils.DbURL;
+import com.mideye.exceptions.AppException;
+import com.mideye.exceptions.GException;
+import com.mideye.server_core.algorithm_hdl.PassCrypto;
+import com.mideye.utilities.DbUserProperties;
+import com.mideye.utilities.Platform;
+
+public class DatabaseDomain extends Observable
+{
+	private static final Logger logger = LoggerFactory.getLogger(DatabaseDomain.class);
+	private static final String DEFAULT_DB_DRIVER = "";
+	private static final String DEFAULT_DB_URL = "";
+	private static final String DEFAULT_DB_USER = "";
+	private static final int DEFAULT_SQL_PORT = 1433;
+	
+	private Database database = Database.SQL_SERVER;
+	
+	private String address = "127.0.0.1";
+	private int port;
+	
+	private int connectionIdleTimeout = 10;
+	
+	private String userName = "sa";
+	private String password = "";
+	private String dbName = "mideye";
+	
+	private String driver = "";
+	private String url = "";
+	
+	private String domain = "";
+	private String instance = "";
+	
+	/**
+	 * Builds up the String that will be the URL to the database
+	 */
+	private String buildUrl()
+	{
+		switch (database)
+		{
+			case SQL_SERVER:
+			{
+				final StringBuffer sb = new StringBuffer("jdbc:jtds:sqlserver://");
+				sb.append(address).append(':').append(port).append('/');
+				sb.append(dbName).append(";prepareSQL=2");
+				if (!domain.equals(""))
+				{
+					sb.append(";domain=").append(domain);
+				}
+				if (!instance.equals(""))
+				{
+					sb.append(";instance=").append(instance);
+				}
+				
+				return sb.toString();
+			}
+			
+			case MYSQL:
+			{
+				final StringBuffer sb = new StringBuffer("jdbc:mysql://");
+				sb.append(address).append(':').append(port).append('/').append(dbName);
+				return sb.toString();
+			}
+			
+			default:
+			{
+				if (DbURL.isValidMySQLUrl(url) == DbURL.NULL_URL &&
+					DbURL.isValidSQLServerUrl(url) == DbURL.NULL_URL)
+				{
+					return url;
+				}
+				else
+				{
+					return "";
+				}
+			}
+		}
+	}
+	
+	/**
+	 * Helper method that should be implemented by all setters.
+	 * Notifies all Observers that the state has changed.
+	 */
+	private void notifyListeners()
+	{
+		notifyListeners(null);
+	}
+	
+	/**
+	 * Helper method that should be implemented by all setters.
+	 * Notifies all Observers that the state has changed.
+	 */
+	private void notifyListeners(final Object arg)
+	{
+		setChanged();
+		notifyObservers(arg);
+	}
+	
+	/**
+	 * Loads the settings from DbConnection.properties
+	 * @throws AppException if there was a problem opening the file
+	 */
+	public void loadSettings() throws AppException
+	{
+		Properties properties = new Properties();
+		try
+		{
+			File file = new File(Platform.getPlatform().getDbConnectionProperties());
+			InputStream is = new FileInputStream(file);
+			try
+			{
+				properties.load(is);
+			}
+			finally
+			{
+				is.close();
+			}
+		}
+		catch (final IOException ex)
+		{
+			throw new AppException("DbConnection.properties not found, needs to redefine database.", ex);
+		}
+		catch (final IllegalArgumentException ex)
+		{
+			throw new AppException("DbConnection.properties was malformed. Need to change database parameters.", ex);
+		}
+		
+		loadSettings(properties);
+	}
+	
+	/**
+	 * Loads the settings from a specified Properties object
+	 * @throws AppException if there was a problem opening the file
+	 */
+	public void loadSettings(final Properties properties) throws AppException
+	{
+		final String driver = properties.getProperty("Driver", DEFAULT_DB_DRIVER);
+		url = properties.getProperty("URL", DEFAULT_DB_URL);
+		userName = properties.getProperty("User", DEFAULT_DB_USER);
+		userName = userName.trim();
+		notifyListeners();
+		
+		// Try to decrypt the password and if failed, use the default
+		password = properties.getProperty("Pwd");
+		if (password == null)
+		{
+			throw new AppException("Database connection not properly setup");
+		}
+		else
+		{
+			decryptPassword();
+		}
+		
+		// Get timeout and convert it to seconds
+		boolean timeOutError = false;
+		String timeout = properties.getProperty("timeout", Integer.toString(ConfigTool.DB_CONN_IDLE_TIMEOUT_MIN));
+		try
+		{
+			int iTimeout = Integer.parseInt(timeout);
+			iTimeout /= (1000 * 60);
+			timeout = Integer.toString(iTimeout);
+			connectionIdleTimeout = iTimeout;
+		}
+		catch (NumberFormatException ex)
+		{
+			timeOutError = true;
+		}
+		
+		DbURL dbUrl;
+		if ((dbUrl = DbURL.isValidSQLServerUrl(url)) != DbURL.NULL_URL)
+		{
+			this.setDatabase(Database.SQL_SERVER);
+		}
+		else if ((dbUrl = DbURL.isValidMySQLUrl(url)) != DbURL.NULL_URL)
+		{
+			this.setDatabase(Database.MYSQL);
+		}
+		else
+		{
+			this.database = Database.OTHER;
+			this.driver = driver;
+		}
+		
+		this.address = dbUrl.getAddress();
+		this.dbName = dbUrl.getName();
+		this.domain = dbUrl.getDomain();
+		this.instance = dbUrl.getInstance();
+		
+		try
+		{
+			this.port = Integer.parseInt(dbUrl.getPort());
+		}
+		catch (final NumberFormatException ex)
+		{
+			// Just ignore and use default value
+			logger.debug("Could not parse the port number to the database", ex);
+			this.port = DEFAULT_SQL_PORT;
+		}
+		
+		notifyListeners();
+		if (timeOutError)
+		{
+			throw new AppException("Cannot convert idle timeout property " + timeout + " to a number");
+		}
+	}
+	
+	protected void decryptPassword() throws AppException
+	{
+		password = password.trim();
+		
+		try
+		{
+			PassCrypto passCrypto = PassCrypto.getInstance();
+			password = passCrypto.decryptPass(userName, DbUserProperties.DB_ENCRYPT_KEY_MSISDN.trim(), password);
+		}
+		catch (GException ex)
+		{
+			password = "";
+			throw new AppException("Error decrypting password for database. Please re-configure your database connection.", ex);
+		}
+	}
+	
+	/////////////////////////////////////////////////////////////
+	// Getters and Setters
+	/////////////////////////////////////////////////////////////
+	
+	public Database getDatabase()
+	{
+		return database;
+	}
+	
+	public void setDatabase(Database database)
+	{
+		this.database = database;
+		this.port = database.getPort();
+		notifyListeners();
+	}
+	
+	public String getAddress()
+	{
+		return address;
+	}
+	
+	public void setAddress(String address)
+	{
+		this.address = address;
+		notifyListeners();
+	}
+	
+	public void setAddress(String address, final Object arg)
+	{
+		this.address = address;
+		notifyListeners(arg);
+	}
+	
+	public int getPort()
+	{
+		return port;
+	}
+	
+	public void setPort(int port)
+	{
+		this.port = port;
+		notifyListeners();
+	}
+	
+	public void setPort(int port, Object arg)
+	{
+		this.port = port;
+		notifyListeners(arg);
+	}
+	
+	public int getConnectionIdleTimeout()
+	{
+		return connectionIdleTimeout;
+	}
+	
+	public void setConnectionIdleTimeout(int connectionIdleTimeout)
+	{
+		this.connectionIdleTimeout = connectionIdleTimeout;
+		notifyListeners();
+	}
+	
+	public void setConnectionIdleTimeout(int connectionIdleTimeout, Object arg)
+	{
+		this.connectionIdleTimeout = connectionIdleTimeout;
+		notifyListeners(arg);
+	}
+	
+	public String getUserName()
+	{
+		return userName;
+	}
+	
+	public void setUserName(String userName)
+	{
+		this.userName = userName;
+		notifyListeners();
+	}
+	
+	public void setUserName(String userName, Object arg)
+	{
+		this.userName = userName;
+		notifyListeners(arg);
+	}
+	
+	public String getPassword()
+	{
+		return password;
+	}
+	
+	public void setPassword(String password)
+	{
+		this.password = password;
+		notifyListeners();
+	}
+	
+	public void setPassword(String password, Object arg)
+	{
+		this.password = password;
+		notifyListeners(arg);
+	}
+	
+	public String getDbName()
+	{
+		return dbName;
+	}
+	
+	public void setDbName(String dbName)
+	{
+		this.dbName = dbName;
+		notifyListeners();
+	}
+	
+	public void setDbName(String dbName, Object arg)
+	{
+		this.dbName = dbName;
+		notifyListeners(arg);
+	}	
+	
+	public String getDriver()
+	{
+		if (database != Database.OTHER)
+		{
+			return database.getDriver();
+		}
+		else
+		{
+			return this.driver;
+		}
+	}
+	
+	public String getUrl()
+	{
+		//return url;
+		return buildUrl();
+	}
+	
+	public String getDomain()
+	{
+		return domain;
+	}
+
+	public void setDomain(String domain)
+	{
+		this.domain = domain;
+		notifyListeners();
+	}
+	
+	public void setDomain(String domain, Object arg)
+	{
+		this.domain = domain;
+		notifyListeners(arg);
+	}
+
+	public String getInstance()
+	{
+		return instance;
+	}
+
+	public void setInstance(String instance)
+	{
+		this.instance = instance;
+		notifyListeners();
+	}
+	
+	public void setInstance(String instance, Object arg)
+	{
+		this.instance = instance;
+		notifyListeners(arg);
+	}
+	
+	public void setDriver(String driver)
+	{
+		this.driver = driver;
+		notifyListeners();
+	}
+
+	public void setDriver(String driver, Object arg)
+	{
+		this.driver = driver;
+		notifyListeners(arg);
+	}
+	
+	public void setUrl(String url)
+	{
+		this.url = url;
+		notifyListeners();
+	}
+	
+	public void setUrl(String url, Object arg)
+	{
+		this.url = url;
+		notifyListeners(arg);
+	}
+}

@@ -1,0 +1,209 @@
+package com.mideye.install;
+
+import static org.junit.Assert.assertTrue;
+
+import java.io.File;
+import java.io.IOException;
+
+import org.custommonkey.xmlunit.Diff;
+import org.custommonkey.xmlunit.XMLUnit;
+import org.jdom2.JDOMException;
+import org.jdom2.input.SAXBuilder;
+import org.jdom2.output.XMLOutputter;
+import org.junit.After;
+import org.junit.AfterClass;
+import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.Test;
+import org.xml.sax.SAXException;
+
+import com.mideye.utilities.XMLHelperForTestPurposes;
+
+public class WebServerConfiguratorTest
+{
+	//directory on which base the virtual structure for tests
+	private static final String VIRTUAL_BASEDIR = "." + File.separator + "tomcat";
+
+	private static final String VIRTUAL_CERT_FOLDER = VIRTUAL_BASEDIR + File.separator + "certificates"; 
+	
+	//virtual CATALINA_HOME
+	private static final String VIRTUAL_WEBSRV_FOLDER = VIRTUAL_BASEDIR + File.separator + "current";
+	
+	//configuration folder in the web server
+	private static final String VIRTUAL_WEBSRV_CONF_FOLDER = VIRTUAL_WEBSRV_FOLDER + File.separator + "conf";
+	
+	private final String SERVER_XML_FILE_PATH = VIRTUAL_WEBSRV_CONF_FOLDER + File.separator + "server.xml";
+	
+	private final String WEB_XML_FILE_PATH = VIRTUAL_WEBSRV_FOLDER + File.separator + "web.xml"; 
+	
+	@BeforeClass
+	public  static void setUpBeforeClass() throws Exception
+	{
+		//creating the whole path 
+		new File(VIRTUAL_WEBSRV_CONF_FOLDER).mkdirs();
+	}
+
+	@AfterClass
+	public static void tearDownAfterClass() throws Exception
+	{
+		rmdir(new File(VIRTUAL_BASEDIR));
+	}
+	
+	/**
+	 * To remove recursively the folder
+	 * @param folder
+	 */
+	public static void rmdir(final File folder) {
+	      // check if folder file is a real folder
+	      if (folder.isDirectory()) {
+	          File[] list = folder.listFiles();
+	          if (list != null) {
+	              for (int i = 0; i < list.length; i++) {
+	                  File tmpF = list[i];
+	                  if (tmpF.isDirectory()) {
+	                      rmdir(tmpF);
+	                  }
+	                  tmpF.delete();
+	              }
+	          }
+	          if (!folder.delete()) {
+	            System.out.println("can't delete folder : " + folder);
+	          }
+	      }
+	  }
+	
+	@Before
+	public void setUp() throws Exception
+	{
+		XMLUnit.setIgnoreWhitespace(true);
+
+		XMLHelperForTestPurposes.createDummyWebXML(WEB_XML_FILE_PATH);
+		XMLHelperForTestPurposes.createDummyServerXML(SERVER_XML_FILE_PATH);
+	}
+
+	@After
+	public void tearDown() throws Exception
+	{
+		//deleting the xml
+		File serv = new File(SERVER_XML_FILE_PATH);
+		if (serv.exists())
+			serv.delete();
+
+		File web = new File(WEB_XML_FILE_PATH);
+		if (web.exists())
+			web.delete();
+	}
+	
+	@Test
+	public void checkBasicDirStructure()
+	{
+		assertTrue(new File(VIRTUAL_WEBSRV_FOLDER).exists());
+		assertTrue(new File(VIRTUAL_WEBSRV_CONF_FOLDER).exists());
+	}
+	
+	@Test
+	public void testGenerateAndConfigServerCertificate()
+	{
+		//
+		
+	}
+
+	
+	public void testGenerateAndConfigureSelfSignedCertificate() throws IOException, SAXException, JDOMException
+	{
+		//this path is not used here it is just to check if the xml has been updated
+		final String KEYSTORE_FILE_PATH = "/opt/mideyeserver/certs/tomcat.keystore";
+		
+		//temp password to check if the xml has been updated
+		final String KEYSTORE_PASS = "thisIsAnOriginalPassword";
+		
+		String expectedServerXML =
+				"<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + 
+				"<Server port=\"8005\" shutdown=\"SHUTDOWN\">" +
+				    "<Service name=\"Catalina\">" +
+				    	"<Connector port=\"8080\" " +
+				    		"protocol=\"HTTP/1.1\" " +
+				    		"connectionTimeout=\"20000\" " +
+			    			"maxSpareThreads=\"75\" " +
+			    			"disableUploadTimeout=\"true\" " +
+			    			"redirectPort=\"8443\" " +
+			    			"maxHttpHeaderSize=\"8192\" " +
+			    			"minSpareThreads=\"25\" " +
+			    			"acceptCount=\"100\" " +
+			    			"maxThreads=\"150\" " +
+			    			"enableLookups=\"false\" " +	
+						"/>" +
+					    "<Connector port=\"8443\" " + 
+						    "SSLEnabled=\"true\" " +
+						    "maxThreads=\"150\" " + 
+						    "maxSpareThreads=\"75\" " +
+						    "maxHttpHeaderSize=\"8192\" " +
+						    "disableUploadTimeout=\"true\" " +
+						    "minSpareThreads=\"25\" " +
+						    "acceptCount=\"100\" " +
+						    "scheme=\"https\" " + 
+						    "secure=\"true\" " + 
+						    "clientAuth=\"false\" " +
+						    "enableLookups=\"false\" " +
+						    "sslProtocol=\"TLS\" " + 
+						    "keystoreFile=\"" + KEYSTORE_FILE_PATH + "\" " + 
+						    "keystorePass=\"" + KEYSTORE_PASS  + "\" " +
+						    "protocol=\"org.apache.coyote.http11.Http11Protocol\" " +
+					    "/>" +	
+				    "</Service>" +
+			    "</Server>";
+		
+		WebServerConfigurator.updateTomcatConfiguration(VIRTUAL_WEBSRV_FOLDER, KEYSTORE_FILE_PATH, KEYSTORE_PASS);
+		File f = new File(SERVER_XML_FILE_PATH);
+		
+		//the file we are testing is present
+		assertTrue(f.exists());
+
+		//optional print
+//		try
+//		{
+//			System.out.println("Expected:");
+//			XMLHelperForTestPurposes.printPrettyDoc(new SAXBuilder().build(f));
+//			
+//			System.out.println("\nActual:");
+//			printPrettyDoc(new SAXBuilder().build(new StringReader(expectedWebXML)));
+//		}
+//		catch (JDOMException e)
+//		{
+//			// TODO Auto-generated catch block
+//			e.printStackTrace();
+//		}
+		
+		Diff diff = new Diff(expectedServerXML, new XMLOutputter().outputString(new SAXBuilder().build(f)));
+
+		assertTrue(diff.similar());
+	}
+	
+//	@Test
+//	public void testUpdateWebXMLConfiguration() throws IOException, SAXException, JDOMException
+//	{
+//		String expectedWebXML =
+//			"<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + 
+//			"<web-app>" + 
+//			  "<security-constraint>" + 
+//			    "<web-resource-collection>" + 
+//			      "<url-pattern>/*</url-pattern>" + 
+//			    "</web-resource-collection>" + 
+//			    "<user-data-constraint>" + 
+//			      "<transport-guarantee>CONFIDENTIAL</transport-guarantee>" + 
+//			    "</user-data-constraint>" + 
+//			  "</security-constraint>" + 
+//			"</web-app>";
+//
+//		
+//		
+//		WebServerConfigurator.updateWebXMLConfiguration(WEB_XML_FILE_PATH);
+//		
+//		File f = new File(WEB_XML_FILE_PATH);
+//		Diff diff = new Diff(expectedWebXML, new XMLOutputter().outputString(new SAXBuilder().build(f)));
+//
+//		assertTrue(diff.similar());
+//	}
+
+
+}

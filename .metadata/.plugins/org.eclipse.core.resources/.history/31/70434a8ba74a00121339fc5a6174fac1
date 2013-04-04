@@ -1,0 +1,128 @@
+package com.mideye.administration_ui.log_config;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Map.Entry;
+
+import javax.swing.JPanel;
+
+import com.mideye.administration_ui.IConfigTool;
+import com.mideye.administration_ui.ServiceConnection;
+import com.mideye.exceptions.AppException;
+import com.mideye.exceptions.ServiceException;
+import com.mideye.logmanager.SimpleEventViewAppender;
+import com.mideye.logmanager.SimpleFileAppender;
+import com.mideye.logmanager.SimpleSnmpAppender;
+import com.mideye.logmanager.SimpleSyslogAppender;
+import com.mideye.utilities.Assert;
+
+public class LogPanelMain
+{
+	private final IConfigTool configTool;
+	private Map<String, SimpleProcess> simpleProcesses = new HashMap<String, SimpleProcess>();
+	private LogConfigPresenter configPresenter;
+	private LogConfigRmiCommunication rmiCommunicator;
+	private LogConfigPanel logConfigPanel = null;
+	
+	public LogPanelMain(IConfigTool configTool)
+	{
+		this.configTool = Assert.notNull(configTool);
+	}
+	
+	public JPanel createLogConfigPanel() throws AppException
+	{
+		ProcessPanel processPanel = new ProcessPanel();
+		configPresenter = createLogConfigPresenters(processPanel);
+		logConfigPanel = new LogConfigPanel(processPanel);
+		
+		configPresenter.setView(logConfigPanel);
+		configPresenter.configure();
+		
+		logConfigPanel.setSelectedProcess(IProcessPresenter.RADIUS_SERVER);
+		return logConfigPanel;
+	}
+	
+	private LogConfigPresenter createLogConfigPresenters(ProcessPanel processPanel) throws AppException
+	{
+		rmiCommunicator = new LogConfigRmiCommunication();
+		simpleProcesses = rmiCommunicator.getLogProcesses();
+		try
+		{
+			return new LogConfigPresenter(ServiceConnection.getService(), configTool, convert(processPanel));
+		}
+		catch (ServiceException ex)
+		{
+			// FIXME: Report error to user
+			return new LogConfigPresenter(null, configTool, convert(processPanel));
+		}
+	}
+	
+	public void save() throws AppException
+	{
+		if (configPresenter != null)
+		{
+			rmiCommunicator.saveLogConfig(configPresenter.createLogConfig());
+			
+			Map<String, SimpleProcess> newConfig = configPresenter.createConfiguration();
+			simpleProcesses.put(IProcessPresenter.ALARM_MANAGER,
+					new SimpleProcess(newConfig.get(IProcessPresenter.ALARM_MANAGER)));
+			simpleProcesses.put(IProcessPresenter.RADIUS_SERVER,
+					new SimpleProcess(newConfig.get(IProcessPresenter.RADIUS_SERVER)));
+			simpleProcesses.put(IProcessPresenter.WEB_ADMIN,
+					new SimpleProcess(newConfig.get(IProcessPresenter.WEB_ADMIN)));
+		}
+	}
+	
+	public boolean haveUnsavedChanges()
+	{
+		if (configPresenter == null)
+		{
+			return false;
+		}
+		
+		configPresenter.saveCurrentModel();
+		Map<String, SimpleProcess> newConfig = configPresenter.createConfiguration();
+		return !(simpleProcesses.get(IProcessPresenter.ALARM_MANAGER).equals(newConfig.get(IProcessPresenter.ALARM_MANAGER)) &&
+			simpleProcesses.get(IProcessPresenter.RADIUS_SERVER).equals(newConfig.get(IProcessPresenter.RADIUS_SERVER)) &&
+			simpleProcesses.get(IProcessPresenter.WEB_ADMIN).equals(newConfig.get(IProcessPresenter.WEB_ADMIN)));
+	}
+	
+	public LogConfigPanel getLogConfigPanel()
+	{
+		return logConfigPanel;
+	}
+	
+	private Map<String, IProcessPresenter> convert(ProcessPanel processPanel)
+	{
+		Map<String, IProcessPresenter> presenters = new HashMap<String, IProcessPresenter>();
+		
+		for (Entry<String, SimpleProcess> entry : simpleProcesses.entrySet())
+		{
+			LogFilePresenter logFilePresenter = new LogFilePresenter(
+					processPanel.getFilePanel(),
+					new SimpleFileAppender(entry.getValue().getFileAppender()));
+			
+			SyslogPresenter syslogPresenter = new SyslogPresenter(
+					processPanel.getSyslogPanel(),
+					new SimpleSyslogAppender(entry.getValue().getSyslogAppender()));
+			
+			EventViewerPresenter eventViewerPresenter = new EventViewerPresenter(
+					processPanel.getEventViewerPanel(),
+					new SimpleEventViewAppender(entry.getValue().getEventViewAppender()));
+			
+			SnmpPresenter snmpPresenter = new SnmpPresenter(
+					processPanel.getSnmpPanel(),
+					new SimpleSnmpAppender(entry.getValue().getSnmpAppender()));
+			
+			ProcessPresenter presenter = new ProcessPresenter(processPanel,
+					logFilePresenter,
+					syslogPresenter,
+					eventViewerPresenter,
+					snmpPresenter);
+			
+			presenters.put(entry.getKey(), presenter);
+		}
+		
+		return presenters;
+	}
+}

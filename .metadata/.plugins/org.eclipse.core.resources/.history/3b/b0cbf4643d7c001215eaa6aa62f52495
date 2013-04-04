@@ -1,0 +1,513 @@
+package com.mideye.install;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.Map;
+
+import org.apache.log4j.xml.DOMConfigurator;
+import org.jdom2.Attribute;
+import org.jdom2.Element;
+import org.jdom2.Text;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.mideye.logmanager.LogProperties;
+import com.mideye.utilities.CertificateUtils;
+import com.mideye.utilities.Platform;
+import com.mideye.utilities.RandomPasswordGenerator;
+import com.mideye.utilities.UncaughtExceptionHandler;
+import com.mideye.utilities.Utils;
+import com.mideye.utilities.XmlModifier;
+
+/**
+ * This class generates a self signed certificate 
+ * in order to enable https by default on the
+ * web server (currently tomcat on tomEE).
+ * First is generated a random password used to
+ * secure the certificate and the keystore.
+ * Then the self signed certificate is generated 
+ * and stored in the default directory, and finally
+ * the password and the certificate path, plus
+ * additional parameter are added to the web
+ * server configuration file (in this case {TOMCAT_HOME}/conf/server.xml) 
+ * 
+ * NOTE: here Tomcat and TomEE are synonyms since most of the
+ * paths and configurations are the same.
+ * 
+ */
+public class WebServerConfigurator
+{
+	private static final Logger logger = LoggerFactory.getLogger(WebServerConfigurator.class.getName());
+	
+	/* #################### CONSTANTS #################### */
+	
+	/* This is the issuer of the self signed certificate */
+	private static final String ISSUER = "CN=Mideye AB, OU=Mideye AB, O=Mideye AB, L=Stockholm, ST=Sweden, C=SE";
+	
+	//type of cert store containing the web server certificate
+	public static final String WEB_SRV_KEYSTORE_TYPE = "JKS";
+	
+	/* This is the default name for the keystore that hosts the server
+	 * certificate that allows SSL for the web administration
+	 *  
+	 * THE FILE MUST NEVER BE RENAMED !!!
+	 * 
+	 * */
+	private static final String WEB_SRV_KEYSTORE_NAME = "webserver_https.keystore";
+	
+	/*
+	 * This represents the file containing certificate and private key
+	 * that the end user (client) uses, signed by the web server certificate
+	 */
+	private static final String END_USER_KEYSTORE_NAME = "client.p12";
+	
+	private static final String VERIFY = "verify";
+	private static final String CONFIGURE = "configure";
+	private static final String CLIENT = "client";
+
+	/* #################### END OF CONSTANTS #################### */
+	
+	//they might be loaded by a property file
+	protected static final Map<String, String> httpsConnectorAttributeMap = 
+		    new HashMap<String, String>() 
+    		{
+				private static final long	serialVersionUID	= -5147967020096211286L;
+				{ 
+					put("maxHttpHeaderSize", "8192");
+					put("maxThreads", "150");
+					put("minSpareThreads", "25");
+					put("maxSpareThreads", "75");
+					put("enableLookups", "false");
+					put("disableUploadTimeout", "true");
+					put("acceptCount", "100");
+					put("scheme", "https");
+					put("secure", "true");
+					put("sslProtocol", "TLS");
+					put("clientAuth", "false");
+					put("protocol", "org.apache.coyote.http11.Http11Protocol");
+					put("SSLEnabled", "true");
+				}
+			};
+
+	//they might be loaded by a property file
+	protected static final Map<String, String> httpConnectorAttributeMap = 
+			new HashMap<String, String>() 
+			{
+				private static final long	serialVersionUID	= -5147967020096211286L;
+				{ 
+					put("port", "8080"); 
+					put("protocol", "HTTP/1.1");
+					put("maxHttpHeaderSize", "8192");
+					put("maxThreads", "150");
+					put("minSpareThreads", "25");
+					put("maxSpareThreads", "75");
+					put("enableLookups", "false");
+					put("redirectPort", "8443");
+					put("acceptCount", "100");
+					put("connectionTimeout", "20000");
+					put("disableUploadTimeout", "true");
+				}
+			};			
+
+	/**
+	 * This method generates:
+	 * 	- a random password
+	 * 	- a private key and a public key with a self signed certificate
+	 * 
+	 * The random password is used to secure the certificate and the private 
+	 * key contained in the keystore. It is then updated to the tomcat
+	 * server.xml configuration file to enable tomcat to use the keystore.
+	 * In the server.xml together with the keystore password it is updated
+	 * the location of the keystore and other parameters to enable
+	 * the SSL connection for the web administration.
+	 * 
+	 * NOTE: in unix (and only in unix) after the creation of the keystore 
+	 * and the modification of XML files currently (4.2.4) those files
+	 * permission have root:root instead of mideye:mideye.
+	 * To solve this, in unix, since this method is called the first time 
+	 * config tool is run after the installation of the mideyeserver,
+	 * it is called a script to change the permissions on those files
+	 * (or the folders) 
+	 * 
+	 * @throws Exception
+	 */
+	public static void generateAndConfigServerCertificate() throws Exception
+	{
+		Path certPath = getCertPath();
+		
+		logger.debug("Certificate path: \"{}\"", certPath);
+		
+		//if the certificates folder doesn't exists, create it. It is needed
+		if (Utils.createFolderIfNotExisting(certPath))
+		{
+			logger.debug("Certificate folder created in: \"{}\"", certPath);
+		}
+		
+		/**
+		 * This is the full absolute path of the keystore file containing the certificates and the key
+		 */
+		final String keyStoreFile = getWebSrvKeystoreFilePath();
+		
+		logger.debug("Creating keyStore in: \"{}\"", keyStoreFile);
+		
+		//generate a random password
+		String password = RandomPasswordGenerator.getNext();
+		
+		logger.debug("Generated random password for the keystore");
+		
+		//generation of the certificate
+		CertificateUtils.generateAndStoreSelfSignedCert(ISSUER, keyStoreFile, password, WEB_SRV_KEYSTORE_NAME);
+		logger.debug("Certificate generated and stored in {}", keyStoreFile);
+
+		//setting the read permission for the keystore
+		File f = new File(keyStoreFile);
+		Utils.setEverybodyReadPermissions(f);
+
+		configureServerCertificateOnWebServer(Platform.getPlatform().getTomcatPath(), keyStoreFile, password);
+		
+		logger.debug("The web server configuration has been updated to use the new certificate");
+		
+		/*
+		 * this updates the web.xml, commented for the moment not needed
+		 * since we ship the already modified web.xml
+		 * It might be user in the future if we want to give the user
+		 * the possibility to enable/disable the ssl communication
+		 * between the web admin and the mideye server 
+		 */
+//		updateWebXMLConfiguration(Platform.getPlatform().getWebXMLConfigFile());
+		
+	}
+	
+	public static void generateAndConfigClientCertificate() throws Exception
+	{
+		//generate client cert
+		
+		//update web server conf
+	}
+
+	/**
+	 * @return a string representing the full absolute path of
+	 * the key store 
+	 */
+	private static String getWebSrvKeystoreFilePath()
+	{
+		return getCertPath().toString() + File.separator + WEB_SRV_KEYSTORE_NAME;
+	}
+
+	private static String getEndUserKeystoreFilePath()
+	{
+		return getCertPath().toString() + File.separator + END_USER_KEYSTORE_NAME;
+	}
+
+	/**
+	 * @return the Path of the folder in which the certificates
+	 * are located
+	 */
+	private static Path getCertPath()
+	{
+		Path certPath = Paths.get(Platform.getPlatform().getCertificatesPath()).toAbsolutePath().normalize();
+		return certPath;
+	}
+
+	/**
+	 * This method updates the configuration of the web.xml
+	 * file of the web administration interface.
+	 * It is needed to enable the SSL connection in tomcat
+	 * 
+	 * This is what needs to be added in the web.xml
+	 * <security-constraint>
+	 *	  <web-resource-collection>
+	 *    	<url-pattern>/*</url-pattern>
+	 *    </web-resource-collection>
+	 *    <user-data-constraint>
+	 *      <transport-guarantee>CONFIDENTIAL</transport-guarantee>
+	 *    </user-data-constraint>
+	 * </security-constraint>
+	 * 
+	 * NOTE: currently not used
+	 * 
+	 * @throws IOException 
+	 */
+	protected static void updateWebXMLConfiguration(String webXMLPath) throws IOException
+	{
+		XmlModifier xmlModifier = new XmlModifier(webXMLPath);
+
+		//<security-constraint>
+		Element secConstr = xmlModifier.getElementsByName("security-constraint", true, xmlModifier.getRoot()).get(0);	//there is always one element
+
+		//<web-resource-collection>
+		Element webResColl = xmlModifier.getElementsByName("web-resource-collection", true, secConstr).get(0);	//there is always one element
+
+		//<url-pattern>
+		Element urlPattern = xmlModifier.getElementsByName("url-pattern", true, webResColl).get(0);	//there is always one element
+		urlPattern.addContent(new Text("/*"));
+
+		//<user-data-constraint>
+		Element userDataConstr = xmlModifier.getElementsByName("user-data-constraint", true, secConstr).get(0);	//there is always one element
+		
+		//<transport-guarantee>
+		Element transpGuar = xmlModifier.getElementsByName("transport-guarantee", true, userDataConstr).get(0);	//there is always one element
+		transpGuar.setContent(new Text("CONFIDENTIAL"));
+		
+		xmlModifier.save();
+	}
+
+	/**
+	 * This method updates the tomcat DEFAULT configuration
+	 * according to the given parameters in order to enable
+	 * the web server to have SSL connection ON by default.
+	 * 
+	 * PRE: tomcatPath must exist and must contain at least
+	 * the folder conf with the file server.xml
+	 * 
+	 * @param tomcatPath tomcat root folder
+	 * @param keyStoreFile the path of the autogenerated keystore
+	 * @param password keystore's password
+	 * @param generateClientCert 
+	 * @throws IOException 
+	 */
+	private static void configureServerCertificateOnWebServer(String tomcatPath, String keyStoreFile, String password) throws IOException
+	{
+		//update the map with the generated values
+		httpsConnectorAttributeMap.put("keystoreFile", keyStoreFile);
+		httpsConnectorAttributeMap.put("keystorePass", password);
+
+		httpsConnectorAttributeMap.put("truststoreFile", keyStoreFile);
+		httpsConnectorAttributeMap.put("truststorePass", password);
+		
+		
+		final Path server_XML_filePath = getTomcatServerXMLFilePath(tomcatPath);
+		XmlModifier xmlModifier = new XmlModifier(server_XML_filePath.toString());
+		
+		//two elements to create/modify: 
+		//the connector with port 8443 (create if not present)
+		//the connector with port 8080
+		
+		//if the connector with port 8443 is not present, create it
+		Element connector = xmlModifier.getElementByNameAndAtt("Connector", "port", "8443");
+		if (connector == null)
+		{
+			//get the parent element and create the connector
+			Element parent = xmlModifier.getElementByNameAndAtt("Service", "name", "Catalina");
+			//create the element
+			connector = new Element("Connector");
+			//add the first attribute
+			connector.getAttributes().add(new Attribute("port", "8443"));
+			//add to the parent
+			parent.getChildren().add(connector);
+			//save
+			xmlModifier.save();
+		}
+	
+		//modify the attributes
+		xmlModifier.modifyElementAttributes(connector, httpsConnectorAttributeMap, true, false);
+		
+		//get the connector with port 8080
+		connector = xmlModifier.getElementByNameAndAtt("Connector", "port", "8080");
+		
+		//modify the attributes
+		xmlModifier.modifyElementAttributes(connector, httpConnectorAttributeMap, true, false);
+		
+		xmlModifier.save();
+	}
+	
+	private static String configureClientCertificateOnWebServer(String tomcatPath)
+	{
+		final Path server_XML_filePath = getTomcatServerXMLFilePath(tomcatPath);
+		XmlModifier xmlModifier = new XmlModifier(server_XML_filePath.toString());
+
+		Element connector = xmlModifier.getElementByNameAndAtt("Connector", "port", "8443");
+		
+		if (connector == null)
+		{
+			logger.error("Unexpected error in the configuration. It seems that the web server" +
+					"configuration file is not configured to use a server certificate, hence" +
+					"it is not possible to configure a client certificate");
+			throw new 
+		}
+		else
+		{
+			//generate the password
+			String keyStorePassword = RandomPasswordGenerator.getNext();
+			
+			//generate the certificate
+			CertificateUtils.generateAndStoreEndUserCertificate(
+					connector.getAttribute("keystoreFile").getValue(),
+					connector.getAttribute("keystorePass").getValue(),
+					WEB_SRV_KEYSTORE_TYPE, ISSUER, getEndUserKeystoreFilePath().toString(), 
+					keyStorePassword);
+
+			//set clientAuth to true, so to ask for the client certificate
+			connector.getAttribute("clientAuth").setValue("true");
+			
+		}
+		return keyStorePassword;
+	}
+
+	/**
+	 * @param tomcatPath 
+	 * @return
+	 */
+	private static Path getTomcatServerXMLFilePath(String tomcatPath)
+	{
+		return Paths.get(tomcatPath, "conf", "server.xml").toAbsolutePath().normalize();
+	}
+
+	/**
+	 * This method determines if the certificate is already generated
+	 * and the web server configured, or the script must be run.
+	 * 
+	 * The web server is configured if the certificate file doesn't exist
+	 * and in the web server configuration file there is no reference to
+	 * of the certificate.
+	 * 
+	 * If the user wants to replace the self signed certificate
+	 * with another certificate, the new certificate must be renamed
+	 * with the same name as the self signed
+	 * 
+	 * @return
+	 */
+	public static boolean needsToBeConfigured()
+	{
+		//check if the certificate is present
+		if (!new File(getWebSrvKeystoreFilePath()).exists())
+		{
+			logger.warn("The web server certificate file is missing in " + getWebSrvKeystoreFilePath());
+			//not needed to check further
+			return true;
+		}
+
+		//here the certificate exists, check if the
+		//web server is configured to use it
+		if (!webServerConfigurationIsValid())
+		{
+			logger.warn("There are errors in the web server configuration");
+			return true;
+		}
+		
+		//everything is fine
+		logger.debug("The web server configuration is verified!");
+		return false;
+	}
+
+	/**
+	 * The tomcat configuration is valid if in the server.xml
+	 * the connectors are configured to use the current certificate
+	 * @return
+	 */
+	private static boolean webServerConfigurationIsValid()
+	{
+		try
+		{
+			final Path server_XML_filePath = getTomcatServerXMLFilePath(Platform.getPlatform().getTomcatPath());
+			XmlModifier xmlModifier = new XmlModifier(server_XML_filePath.toString());
+	
+			Element connector8443 = xmlModifier.getElementByNameAndAtt("Connector", "port", "8443");
+			if (connector8443 == null)
+				return false;
+			
+			//check if the correct path of the keystore and truststore is present in the configuration
+			if (! 	connector8443.getAttribute("keystoreFile").getValue().equalsIgnoreCase(getWebSrvKeystoreFilePath()) && 
+					connector8443.getAttribute("truststoreFile").getValue().equalsIgnoreCase(getWebSrvKeystoreFilePath()) )
+			{
+				logger.debug("The check for the web server configuration detected a difference in the keystore/truststore's path; " +
+						"The current keystore/truststore is located in \"{0}\", while in the web server configuration file the path is: \"{1}\"", 
+						getWebSrvKeystoreFilePath(), connector8443.getAttribute("keystoreFile").getValue());
+				return false;
+			}
+
+			//the path is correct; now checking if the passwords are correct as well
+
+			//checking keystore
+			if (!CertificateUtils.keyStoreParametersAreCorrect(getWebSrvKeystoreFilePath(),
+					connector8443.getAttribute("keystorePass").getValue(),
+					WEB_SRV_KEYSTORE_TYPE))
+				return false;
+
+			//checking truststore (for client certificate validation
+			if (!CertificateUtils.keyStoreParametersAreCorrect(getWebSrvKeystoreFilePath(),
+					connector8443.getAttribute("truststorePass").getValue(),
+					WEB_SRV_KEYSTORE_TYPE))
+				return false;
+
+			//passwords are correct also. It should work fine
+			logger.debug("The web server ssh configuration has been checked and it is valid");
+			
+			return true;
+		}
+		catch(Exception e)
+		{
+			logger.error("Error checking the existing web server configuration", e);
+			return false;
+		}
+	}
+
+	/**
+	 * Command line tool to check and / or configure
+	 * the web server https configuration
+	 * @param args
+	 * @throws Exception
+	 */
+	public static void main(String[] args) throws Exception
+	{
+		//set up logging
+		Thread.setDefaultUncaughtExceptionHandler(new UncaughtExceptionHandler());
+		LogProperties logProperties = new LogProperties();
+		DOMConfigurator.configureAndWatch(logProperties.configToolLogConfig());
+		
+		if ( (args.length != 1) || (args.length != 2) )
+		{
+			//TODO: fix
+			printUsageString();
+		}
+			
+		
+		if (args[0].equalsIgnoreCase(VERIFY))
+		{
+			if (needsToBeConfigured())
+			{
+				System.out.println("The web server is not configured correctly. " +
+						"Please run the same command with the parameter: " + CONFIGURE);
+			}
+			else
+			{
+				System.out.println("The web server is correctly configured to use https");
+			}
+		}
+		else if (args[0].equalsIgnoreCase(CONFIGURE))
+		{
+			if (args.length == 2 && args[1].equalsIgnoreCase(CLIENT))
+			{
+				System.out.println("Generating client certificates");
+				//perform the generation and auto configuration
+
+
+				final Path server_XML_filePath = getTomcatServerXMLFilePath(Platform.getPlatform().getTomcatPath());
+				XmlModifier xmlModifier = new XmlModifier(server_XML_filePath.toString());
+		
+				Element connector8443 = xmlModifier.getElementByNameAndAtt("Connector", "port", "8443");
+
+				
+			}
+			else
+			{
+				System.out.println("Generating server only certificate");
+				//perform the generation and auto configuration
+				generateAndConfigServerCertificate();
+			}
+		}
+		else
+		{
+			System.out.println("Command not recognised");
+			printUsageString();
+		}
+	}
+	
+	private static void printUsageString()
+	{
+		System.out.println("Usage: " + WebServerConfigurator.class.getName() + " [" + VERIFY + ", " + CONFIGURE + " [" + CLIENT + "] ]");
+	}
+}

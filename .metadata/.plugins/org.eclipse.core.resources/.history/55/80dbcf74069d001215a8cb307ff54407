@@ -1,0 +1,168 @@
+/**
+ * The Bouncy Castle License
+ *
+ * Copyright (c) 2000-2012 The Legion Of The Bouncy Castle (http://www.bouncycastle.org)
+ * <p>
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of this software 
+ * and associated documentation files (the "Software"), to deal in the Software without restriction, 
+ * including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
+ * and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ * <p>
+ * The above copyright notice and this permission notice shall be included in all copies or substantial
+ * portions of the Software.
+ * <p>
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+ * PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+ * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ * DEALINGS IN THE SOFTWARE.
+ * 
+ * @author Daniele Trabalza <daniele@sics.se> 
+ * SICS - Swedish Institute of Computer Science
+ * Stockholm, Sweden
+ */
+package ch.ethz.inf.vs.californium.layers.dtls;
+
+import java.io.IOException;
+import java.net.SocketException;
+import java.util.logging.Logger;
+
+import org.spongycastle.crypto.dtls.DTLSConnector;
+import org.spongycastle.crypto.dtls.core.DTLSProtocolHandler;
+
+import ch.ethz.inf.vs.californium.coap.EndpointAddress;
+import ch.ethz.inf.vs.californium.coap.Message;
+import ch.ethz.inf.vs.californium.examples.GETClient;
+import ch.ethz.inf.vs.californium.layers.UDPLayer;
+
+/**
+ * This class allows the use of the DTLS protocol
+ * to send and receive both CoAP and CoAPS messages.
+ * 
+ * Two receiving threads are listening for incoming 
+ * messages, CoAP in the port 5683 and CoAPS in
+ * the port 4433.
+ *
+ * @author Daniele Trabalza <daniele@sics.se>
+ */
+public class DTLSUDPLayer extends UDPLayer implements DTLSConnector{
+	
+	/**
+	 * Handler for the DTLS protocol.
+	 * It can be a DTLS client or a DTLS server.
+	 * 
+	 * NOTE: client and server requires different initialization
+	 * of the DTLSContext
+	 */
+	DTLSProtocolHandler handler;
+	
+	//TODO: read from CoAP properties
+	final int dtlsPort = 4433;
+
+	private long sendTime;
+
+	private LoggingStopWatch stopWatch;
+
+	private Logger logger;
+
+
+	public DTLSUDPLayer(int port, boolean daemon) throws SocketException {
+		super(port, daemon);
+		
+		logger = Logger.getLogger(DTLSUDPLayer.class.getName());
+				
+		//determine if this is a DTLS client or server
+		System.out.println("PROP: DTLSStatus " + System.getProperty("DTLSStatus"));
+		boolean isClient;
+		if (System.getProperty("DTLSStatus").equalsIgnoreCase("client"))
+			isClient = true;
+		else 
+			isClient = false;
+		
+		//instantiate DTLS on the default DTLS port
+		if (isClient){
+			handler = new DTLSProtocolHandler(dtlsPort, 
+					DTLSContextInitializer.getClientContext(),
+					true);
+		}else {
+			handler = new DTLSProtocolHandler(dtlsPort, 
+					DTLSContextInitializer.getServerContext(),
+					false);
+		}
+		
+		System.out.println("PROP: Authentication " + System.getProperty("Authentication"));
+		//set for the server if it requires mutual authentication
+		if (!isClient)
+			if (System.getProperty("Authentication").equalsIgnoreCase("mutual"))
+				handler.setMutualAuth(true);
+		
+		handler.registerSubscriber(this);
+	}
+
+	@Override
+	public void DataReceived(Object sender, Object value) {
+		System.out.println("DTLSUDPLayer.DataReceived()");
+		System.out.println("Received CoAPS DATA");
+		// TODO specify that the data was received with CoAPS
+		
+		// get current time
+		long timestamp = System.nanoTime();
+		// create new message from the received data
+		Message msg = Message.fromByteArray((byte[])value);
+		
+		if (msg!=null) {
+			
+			// remember when this message was received
+			msg.setTimestamp(timestamp);
+			
+			msg.setPeerAddress(new EndpointAddress(handler.getAddress(), 5683));
+//			msg.setPeerAddress(new EndpointAddress(handler.getAddress(), 
+//			((DTLSProtocolHandler)sender).getPort()));
+			
+			receiveMessage(msg);
+		}
+	}
+	
+	/**
+	 * Overriding the method in order to decide if send 
+	 * CoAP or CoAPS
+	 */
+	@Override
+	protected void doSendMessage(Message msg) throws IOException {
+		System.out.println("DTLSUDPLayer.doSendMessage()");
+		
+		if (System.getProperty("Protocol").equalsIgnoreCase("coap")){
+			System.out.println("Sending CoAP Message");
+			super.doSendMessage(msg);
+		}else if (System.getProperty("Protocol").equalsIgnoreCase("coaps")){
+			System.out.println("Sending Secure CoAP Message");
+			sendCoAPS(msg);
+		}
+	}
+	
+	@Override
+	protected void doReceiveMessage(Message msg) {
+		long receiveTime = System.currentTimeMillis();
+		System.out.println("Received DTLS response in " + (receiveTime - sendTime) /1000d + " seconds");
+//		stopWatch.stop();
+		// pass message to registered receivers
+		deliverMessage(msg);
+	}
+
+	private void sendCoAPS(Message msg) throws IOException {
+		
+		logger.info("Starting perf log test");
+		
+		sendTime = System.currentTimeMillis();
+		System.out.println("Send DTLS CoAPS MSG @ " + sendTime);
+		
+//		stopWatch = new LoggingStopWatch("CoAPS_SEND_MSG");
+		
+		handler.setAddress(msg.getPeerAddress().getAddress());
+		
+		handler.send(msg.toByteArray());
+	}
+
+}
