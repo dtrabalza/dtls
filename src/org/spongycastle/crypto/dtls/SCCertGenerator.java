@@ -310,21 +310,10 @@ public class SCCertGenerator {
 	}
 
 	public static void main(String[] args) throws Exception {
-		int allowedKeyLength = 0;
-		 
-	    try {
-	      allowedKeyLength = Cipher.getMaxAllowedKeyLength("AES");
-	    } catch (NoSuchAlgorithmException e) {
-	      e.printStackTrace();
-	    }
-	 
-	    System.out.println("The allowed key length for AES is: " + allowedKeyLength);
-	 
-//	    System.out.println("The allowed key length for AES is: " + allowedKeyLength);
-//		SCCertGenerator gen = new SCCertGenerator();
-//		File loc = new File("");
-//		System.out.println("Creating certs in: " + loc.getAbsolutePath().toString());
-//		gen.createKeyStores(loc.getAbsolutePath().toString());
+		SCCertGenerator gen = new SCCertGenerator();
+		File loc = new File("");
+		System.out.println("Creating certs in: " + loc.getAbsolutePath().toString());
+		gen.createKeyStores(loc.getAbsolutePath().toString());
 	}
 
 }
